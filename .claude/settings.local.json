@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(wc:*)",
+      "Bash(mv:*)",
+      "Bash(rm:*)",
+      "Bash(test:*)",
+      "Bash(pip install:*)",
+      "Bash(ls:*)",
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(./venv/Scripts/python:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(git add:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:products.aspose.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:stackoverflow.com)"
+    ],
+    "defaultMode": "plan"
+  }
+}

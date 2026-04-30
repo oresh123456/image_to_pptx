@@ -1,0 +1,17 @@
+# slide_text_replacer configuration template
+# Copy this file to config.toml and fill in your API keys.
+# setup.bat does this automatically the first time it runs.
+# Do NOT commit config.toml to git — it contains secrets.
+
+[api_keys]
+gemini   = ""   # Google AI Studio: https://aistudio.google.com/apikey
+replicate = ""  # Replicate: https://replicate.com/account/api-tokens
+
+[behavior]
+gemini_model    = "gemini-2.5-pro"
+max_concurrent  = 1    # raise to 5 once your Replicate account has > $5 credit
+mask_padding_px = 12   # pixels of padding around each text bbox in the inpaint mask
+mask_blur_radius = 2   # Gaussian blur radius applied to the mask (0 = no blur)
+
+[output]
+suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx

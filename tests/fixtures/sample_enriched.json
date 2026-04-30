@@ -1,0 +1,26 @@
+[
+  {
+    "text": "מהלך אסטרטגי אקלים",
+    "box_2d": [77, 95, 124, 500],
+    "font_size_px": 38,
+    "font_family": "Heebo",
+    "font_weight": "bold",
+    "color": "#1a3a8a"
+  },
+  {
+    "text": "ClimateTech",
+    "box_2d": [130, 95, 165, 350],
+    "font_size_px": 22,
+    "font_family": "Rubik",
+    "font_weight": "regular",
+    "color": "#333333"
+  },
+  {
+    "text": "פתרונות טכנולוגיים לאתגרי האקלים",
+    "box_2d": [200, 95, 260, 900],
+    "font_size_px": 18,
+    "font_family": "Heebo",
+    "font_weight": "regular",
+    "color": "#444444"
+  }
+]
