@@ -128,6 +128,7 @@ def _call_gemini(
     mime_type: str,
     prompt: str,
     timeout: int = 300,
+    thinking_budget: int = 1,
 ) -> str:
     """
     Send a generateContent request to Gemini with an image and prompt.
@@ -159,6 +160,9 @@ def _call_gemini(
                 {"text": prompt},
             ]
         }],
+        "generationConfig": {
+            "thinkingConfig": {"thinkingBudget": thinking_budget},
+        },
     }
     r = requests.post(url, params={"key": api_key}, json=payload, timeout=timeout)
     if r.status_code != 200:
@@ -296,7 +300,8 @@ def run(
     mime_type: str,
     regions: list[Region],
     api_key: str,
-    model: str = "gemini-2.5-pro",
+    model: str = "gemini-2.5-flash",
+    thinking_budget: int = 1,
 ) -> list[EnrichedRegion]:
     """
     Enrich OCR regions with font family, weight, color, and refined geometry.
@@ -325,7 +330,7 @@ def run(
     prompt = _build_prompt(regions)
 
     def _attempt() -> list[EnrichedRegion]:
-        raw = _call_gemini(api_key, model, image_bytes, mime_type, prompt)
+        raw = _call_gemini(api_key, model, image_bytes, mime_type, prompt, thinking_budget=thinking_budget)
         enriched = _parse_enriched(raw, regions)
         log.debug("Enrichment returned %d region(s).", len(enriched))
         return enriched

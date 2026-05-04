@@ -4,15 +4,16 @@ Second Gemini call per slide. Enriches raw OCR regions with font family, weight,
 
 ## Public functions
 
-### `run(image_bytes, mime_type, regions, api_key, model) -> list[EnrichedRegion]`
+### `run(image_bytes, mime_type, regions, api_key, model, thinking_budget) -> list[EnrichedRegion]`
 
-| Input         | Type            | Default            | Description                        |
-|---------------|-----------------|--------------------|------------------------------------|
-| `image_bytes` | `bytes`         | —                  | Same slide image used in OCR pass. |
-| `mime_type`   | `str`           | —                  | `"image/png"` or `"image/jpeg"`.   |
-| `regions`     | `list[Region]`  | —                  | OCR output from `ocr.run()`.       |
-| `api_key`     | `str`           | —                  | Google AI Studio API key.          |
-| `model`       | `str`           | `"gemini-2.5-pro"` | Gemini model name.                 |
+| Input             | Type            | Default              | Description                        |
+|-------------------|-----------------|----------------------|------------------------------------|
+| `image_bytes`     | `bytes`         | —                    | Same slide image used in OCR pass. |
+| `mime_type`       | `str`           | —                    | `"image/png"` or `"image/jpeg"`.   |
+| `regions`         | `list[Region]`  | —                    | OCR output from `ocr.run()`.       |
+| `api_key`         | `str`           | —                    | Google AI Studio API key.          |
+| `model`           | `str`           | `"gemini-2.5-flash"` | Gemini model name.                 |
+| `thinking_budget` | `int`           | `1`                  | Thinking token budget (1 = minimal). |
 
 | Output | Type                    | Description |
 |--------|-------------------------|-------------|

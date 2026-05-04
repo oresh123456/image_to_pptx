@@ -80,12 +80,13 @@ def _process_slide(
     mime_type    = slide_input["mime_type"]
 
     # Stage 1: OCR.
-    regions = ocr.run(image_bytes, mime_type, config.gemini_api_key, config.gemini_model)
+    regions = ocr.run(image_bytes, mime_type, config.gemini_api_key, config.gemini_model, thinking_budget=config.thinking_budget)
     log.debug("Slide %d: OCR → %d region(s).", idx, len(regions))
 
     # Stage 2: Enrichment (adds font/color metadata; falls back to defaults on error).
     enriched = enrichment.run(
-        image_bytes, mime_type, regions, config.gemini_api_key, config.gemini_model
+        image_bytes, mime_type, regions, config.gemini_api_key, config.gemini_model,
+        thinking_budget=config.thinking_budget,
     )
     log.debug("Slide %d: enrichment complete (%d region(s)).", idx, len(enriched))
 

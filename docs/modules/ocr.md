@@ -4,14 +4,15 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 
 ## Public functions
 
-### `run(image_bytes, mime_type, api_key, model) -> list[Region]`
+### `run(image_bytes, mime_type, api_key, model, thinking_budget) -> list[Region]`
 
-| Input         | Type    | Default            | Description                     |
-|---------------|---------|--------------------|---------------------------------|
-| `image_bytes` | `bytes` | —                  | Raw slide image (PNG or JPEG).  |
-| `mime_type`   | `str`   | —                  | `"image/png"` or `"image/jpeg"`. |
-| `api_key`     | `str`   | —                  | Google AI Studio API key.       |
-| `model`       | `str`   | `"gemini-2.5-pro"` | Gemini model name.              |
+| Input             | Type    | Default              | Description                     |
+|-------------------|---------|----------------------|---------------------------------|
+| `image_bytes`     | `bytes` | —                    | Raw slide image (PNG or JPEG).  |
+| `mime_type`       | `str`   | —                    | `"image/png"` or `"image/jpeg"`. |
+| `api_key`         | `str`   | —                    | Google AI Studio API key.       |
+| `model`           | `str`   | `"gemini-2.5-flash"` | Gemini model name.              |
+| `thinking_budget` | `int`   | `1`                  | Thinking token budget (1 = minimal). |
 
 | Output | Type            | Description |
 |--------|-----------------|-------------|

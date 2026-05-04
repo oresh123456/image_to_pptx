@@ -77,6 +77,7 @@ def _call_gemini(
     mime_type: str,
     prompt: str,
     timeout: int = 300,
+    thinking_budget: int = 1,
 ) -> str:
     """
     Send a single generateContent request to Gemini with an image and prompt.
@@ -114,6 +115,9 @@ def _call_gemini(
                 {"text": prompt},
             ]
         }],
+        "generationConfig": {
+            "thinkingConfig": {"thinkingBudget": thinking_budget},
+        },
     }
     r = requests.post(url, params={"key": api_key}, json=payload, timeout=timeout)
     if r.status_code != 200:
@@ -189,7 +193,8 @@ def run(
     image_bytes: bytes,
     mime_type: str,
     api_key: str,
-    model: str = "gemini-2.5-pro",
+    model: str = "gemini-2.5-flash",
+    thinking_budget: int = 1,
 ) -> list[Region]:
     """
     Detect all text regions in a slide image using Gemini 2.5 Pro.
@@ -210,7 +215,7 @@ def run(
         Returns an empty list if OCR failed or detected no text.
     """
     def _attempt() -> list[Region]:
-        raw = _call_gemini(api_key, model, image_bytes, mime_type, OCR_PROMPT)
+        raw = _call_gemini(api_key, model, image_bytes, mime_type, OCR_PROMPT, thinking_budget=thinking_budget)
         regions = _parse_regions(raw)
         log.debug("OCR found %d region(s).", len(regions))
         return regions

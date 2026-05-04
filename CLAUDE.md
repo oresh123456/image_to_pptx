@@ -42,7 +42,7 @@ When the user instructs you to read a module for context, read the module source
 
 - **requests** — all HTTP calls (no async, no httpx)
 
-- **Google Gemini 2.5 Pro** — OCR pass + vision enrichment pass (REST API with query-param key)
+- **Google Gemini 2.5 Flash** — OCR pass + vision enrichment pass (REST API with query-param key, thinking disabled by default)
 
 - **Replicate LaMa** (`allenhooo/lama`) — text erasure via inpainting (~$0.0005/slide)
 
