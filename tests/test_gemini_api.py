@@ -80,6 +80,9 @@ def test_gemini_health_json_capable():
         timeout=60,
     )
     import json
-    data = json.loads(result.strip().strip("`").removeprefix("json").strip())
-    assert isinstance(data, list)
-    assert data[0]["status"] == "ok"
+    import re
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", result.strip())
+    data = json.loads(cleaned)
+    # Gemini may return [{"status":"ok"}] or {"status":"ok"} — both fine
+    item = data[0] if isinstance(data, list) else data
+    assert item["status"] == "ok"

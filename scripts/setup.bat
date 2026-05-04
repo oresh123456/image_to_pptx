@@ -2,8 +2,7 @@
 REM ===============================================================
 REM slide_text_replacer - one-time setup
 REM Finds a real Python install (not the Microsoft Store stub),
-REM creates a fresh local venv, installs the package and its deps,
-REM and copies config.example.toml to config.toml on first run.
+REM creates a fresh local venv, and installs the package and its deps.
 REM ===============================================================
 
 setlocal enabledelayedexpansion
@@ -129,23 +128,18 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
-REM --- Create config.toml from template on first run ---
+REM --- Remind user to create config.toml ---
 if not exist config.toml (
     echo.
-    echo Creating config.toml from template...
-    copy /y config.example.toml config.toml >nul
-    echo.
-    echo IMPORTANT: Open config.toml and paste your API keys:
-    echo   [api_keys]
-    echo   gemini   = "YOUR_GOOGLE_AI_STUDIO_KEY"
-    echo   replicate = "YOUR_REPLICATE_TOKEN"
+    echo IMPORTANT: Create config.toml with your API keys.
+    echo See docs\config.md for the full template and instructions.
 )
 
 echo.
 echo === Setup complete ===
 echo.
 echo Next steps:
-echo   1. Open config.toml and paste your API keys.
+echo   1. Create config.toml (see docs\config.md for template).
 echo   2. Double-click scripts\run.bat to process a PPTX.
 echo.
 pause

@@ -2,6 +2,8 @@
 Shared pytest fixtures used across multiple test files.
 
 No API calls — all fixtures produce synthetic in-memory objects.
+Integration fixtures (real_config, test_pptx_path, output_dir) skip
+when prerequisites are missing.
 """
 
 import io
@@ -13,11 +15,13 @@ from PIL import Image
 from pptx import Presentation
 from pptx.util import Emu
 
-from slide_text_replacer.config import Config
+from slide_text_replacer.config import Config, load_config
 from slide_text_replacer.schemas import Region, EnrichedRegion
 
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_TEST_PPTX = _FIXTURES_DIR / "test_input.pptx"
+_OUTPUT_DIR = Path(__file__).parent / "output"
 
 
 @pytest.fixture()
@@ -82,3 +86,32 @@ def pptx_with_picture(sample_image_bytes: bytes, tmp_path: Path) -> Path:
     pptx_path = tmp_path / "test_input.pptx"
     prs.save(str(pptx_path))
     return pptx_path
+
+
+# ---------------------------------------------------------------------------
+# Integration fixtures (skip when prerequisites missing)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def real_config() -> Config:
+    """Load real config.toml. Skip if keys missing."""
+    try:
+        return load_config()
+    except (RuntimeError, FileNotFoundError):
+        pytest.skip("config.toml missing or API keys not set")
+
+
+@pytest.fixture()
+def test_pptx_path() -> Path:
+    """Resolve tests/fixtures/test_input.pptx. Skip if missing."""
+    if not _TEST_PPTX.exists():
+        pytest.skip(f"{_TEST_PPTX} not found — place a real PPTX there")
+    return _TEST_PPTX
+
+
+@pytest.fixture()
+def output_dir() -> Path:
+    """Ensure tests/output/ exists and return its Path."""
+    _OUTPUT_DIR.mkdir(exist_ok=True)
+    return _OUTPUT_DIR

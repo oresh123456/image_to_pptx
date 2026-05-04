@@ -10,3 +10,5 @@ build/
 .pytest_cache/
 .mypy_cache/
 logs/
+tests/output/
+tests/fixtures/test_input.pptx

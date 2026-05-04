@@ -22,5 +22,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 markers = [
     "api: live API health-check tests (skip by default, run with: pytest -m api)",
+    "integration: integration tests requiring real PPTX + API keys (skip by default, run with: pytest -m integration)",
 ]
-addopts = "-m 'not api'"
+addopts = "-m 'not api and not integration'"

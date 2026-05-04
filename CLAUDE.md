@@ -1,3 +1,5 @@
+- in all interactions and comit messages, be extremely concise and sacrafice grammer for the sake of concision
+
 # slide_text_replacer
 
 Converts image-only PowerPoint files (from NotebookLM) into editable PPTX files. Extracts text via OCR, erases baked-in text via inpainting, then overlays native PowerPoint text boxes with matched fonts/colors/sizes. Content is primarily Hebrew with embedded English fragments — full RTL and bidirectional support is required.
@@ -6,9 +8,27 @@ Authoritative technical reference: `docs/notes.md`. If this file and notes.md co
 
 ## Working with limited scope
 
-Each module has a self-contained I/O reference in `docs/modules/<module>.md`. When working on a specific module, read **only** its doc and the docs of modules it directly interfaces with — not the entire codebase. The module docs specify exact input types, output types, error behavior, and guarantees.
+This project uses an **I/O-contract workflow**: each module's public interface (inputs, outputs, errors, guarantees) is documented in `docs/modules/<module>.md`. You work from these contracts instead of reading the full codebase, which keeps context small and focused.
 
-Index: `docs/modules/README.md`.
+**Do not read any file without direct instructions** — this saves context tokens.
+
+When the user instructs you to read a module for context, read the module source and its doc. When working on a module, read **only** its doc and the docs of modules it directly interfaces with. Index: `docs/modules/README.md`.
+
+### Changing a module's I/O contract
+
+**Do not change inputs or outputs without explicit user approval.** When you detect that a task would require an I/O change:
+
+1. **Stop and warn the user** — state exactly what would change (added/removed/renamed fields, new error types, changed return shape) and why the current task requires it.
+2. **Ask permission to search the full codebase** (`src/` and `tests/`) for all affected call sites — both functions that feed input to the changed module and functions that consume its output.
+3. After searching, **return a report** listing:
+   - Every affected function/location
+   - Which pipeline stages are impacted
+   - A rough **difficulty score** (low / medium / high) and **complexity score** (isolated change / multi-module ripple / pipeline-wide) for the overall change
+4. **Wait for user go-ahead** before making any changes. Then update code and the module doc (`docs/modules/<module>.md`).
+
+### Reading beyond your current module
+
+**Never read files outside your assigned module scope without permission.** You are encouraged to request permission whenever it would help — include the file/module name and a one-line reason. Example: *"May I read `docs/modules/enrichment.md`? The function I'm editing receives `EnrichedRegion` as input and I need to verify the field names."*
 
 ---
 
@@ -34,7 +54,7 @@ Index: `docs/modules/README.md`.
 image_to_pptx/                 (git root)
 ├── CLAUDE.md
 ├── pyproject.toml
-├── config.example.toml        # template — copy to config.toml, add API keys
+├── docs/config.md             # config template + field reference
 ├── src/slide_text_replacer/   # main package (13 modules, ~2200 LOC)
 │   ├── __main__.py            # CLI entry point + tkinter file dialogs
 │   ├── config.py              # config.toml loading + env var overrides
@@ -48,21 +68,26 @@ image_to_pptx/                 (git root)
 │   ├── inpainting.py          # Replicate LaMa API client
 │   ├── reconstruction.py      # clean images + text overlays → output PPTX
 │   └── pptx_helpers.py        # XML helpers for <a:cs> Hebrew font + RTL
-├── tests/                     # 113 unit tests (no live API calls)
-│   ├── conftest.py            # shared fixtures
-│   ├── test_config.py         # 10 tests
-│   ├── test_retry.py           # 10 tests
-│   ├── test_ocr.py            # 10 tests
-│   ├── test_enrichment.py     # 12 tests
-│   ├── test_extraction.py     # 8 tests
-│   ├── test_inpainting.py     # 10 tests
-│   ├── test_reconstruction.py # 10 tests
-│   ├── test_pipeline.py       # 8 tests
-│   ├── test_main.py           # 7 tests
-│   ├── test_masking.py        # 9 tests
-│   ├── test_pptx_helpers.py   # 8 tests
-│   ├── test_schemas.py        # 9 tests
-│   └── fixtures/              # sample_ocr.json, sample_enriched.json
+├── tests/                     # 113 unit + 8 integration tests
+│   ├── conftest.py            # shared fixtures (unit + integration)
+│   ├── README.md              # how to run all test types
+│   ├── test_config.py         # 10 unit tests
+│   ├── test_retry.py           # 10 unit tests
+│   ├── test_ocr.py            # 10 unit tests
+│   ├── test_enrichment.py     # 12 unit tests
+│   ├── test_extraction.py     # 8 unit tests
+│   ├── test_inpainting.py     # 10 unit tests
+│   ├── test_reconstruction.py # 10 unit tests
+│   ├── test_pipeline.py       # 8 unit tests
+│   ├── test_main.py           # 7 unit tests
+│   ├── test_masking.py        # 9 unit tests
+│   ├── test_pptx_helpers.py   # 8 unit tests
+│   ├── test_schemas.py        # 9 unit tests
+│   ├── test_integration_removal.py   # 3 integration tests (masking + inpainting)
+│   ├── test_integration_overlay.py   # 3 integration tests (text recreation)
+│   ├── test_integration_full.py      # 2 integration tests (full pipeline)
+│   ├── fixtures/              # sample_ocr.json, sample_enriched.json, test_input.pptx (gitignored)
+│   └── output/                # integration test outputs (gitignored)
 ├── docs/
 │   ├── notes.md               # comprehensive technical manual (read first)
 │   ├── plan.md                # project plan
@@ -83,8 +108,11 @@ scripts/setup.bat
 scripts/run.bat                                          # GUI file dialogs
 python -m slide_text_replacer input.pptx output.pptx     # headless
 
-# Tests
+# Tests (unit only, default)
 python -m pytest tests/
+
+# Integration tests (requires config.toml + tests/fixtures/test_input.pptx)
+python -m pytest tests/ -m integration -v
 ```
 
 ## Pipeline
@@ -124,7 +152,7 @@ Stages add fields in order: OCR writes `text`/`box_2d`/`font_size_px` → Enrich
 
 ## Configuration
 
-`config.toml` next to the package (gitignored). Env vars override: `GEMINI_API_KEY`, `REPLICATE_API_TOKEN`. See `docs/modules/config.md` for all fields and defaults.
+`config.toml` next to the package (gitignored). Env vars override: `GEMINI_API_KEY`, `REPLICATE_API_TOKEN`. See `docs/config.md` for template and all fields.
 
 ## Anti-patterns — do NOT do these
 
