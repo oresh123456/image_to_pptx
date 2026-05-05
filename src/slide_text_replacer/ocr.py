@@ -378,11 +378,13 @@ def run(
     model: str = "gemini-3.1-flash-image-preview",
     thinking_budget: int = 1,
     candidates: int = 10,
+    top_k: int = 2,
+    timeout: int = 300,
 ) -> list[list[Region]]:
     """
-    Detect all text regions via N parallel OCR calls with top-2 consensus.
+    Detect all text regions via N parallel OCR calls with top-k consensus.
 
-    Fires N parallel calls to Gemini, ranks by region count, picks top 2,
+    Fires N parallel calls to Gemini, ranks by region count, picks top-k,
     and consensus-stabilizes each using median coordinates from all N results.
 
     Args:
@@ -391,14 +393,16 @@ def run(
         api_key:     Google AI Studio API key.
         model:       Gemini model name.
         thinking_budget: Gemini thinking token budget.
-        candidates:  Number of parallel OCR calls (default 10). Top-2 selected.
+        candidates:  Number of parallel OCR calls (default 10).
+        top_k:       How many top candidates to select (default 2).
+        timeout:     HTTP timeout in seconds for each Gemini call.
 
     Returns:
-        List of 2 region lists (top-2 candidates, each consensus-stabilized).
-        Returns [[], []] if all candidates failed.
+        List of top_k region lists (each consensus-stabilized).
+        Returns list of top_k empty lists if all candidates failed.
     """
     def _single_attempt() -> list[Region]:
-        raw = _call_gemini(api_key, model, image_bytes, mime_type, OCR_PROMPT, thinking_budget=thinking_budget)
+        raw = _call_gemini(api_key, model, image_bytes, mime_type, OCR_PROMPT, timeout=timeout, thinking_budget=thinking_budget)
         return _parse_regions(raw)
 
     results: list[list[Region]] = []
@@ -411,28 +415,30 @@ def run(
             except Exception as exc:
                 log.warning("OCR candidate failed: %s", exc)
 
+    empty_result = [[] for _ in range(top_k)]
+
     if not results:
         log.error("All %d OCR candidates failed — no text overlay.", candidates)
-        return [[], []]
+        return empty_result
 
-    # Sort by region count descending, pick top 2
+    # Sort by region count descending, pick top-k
     ranked = sorted(results, key=len, reverse=True)
-    top_2 = ranked[:2]
+    top = ranked[:top_k]
 
-    # Pad if only 1 successful candidate
-    if len(top_2) == 1:
-        top_2.append(top_2[0])
+    # Pad if fewer successful candidates than top_k
+    while len(top) < top_k:
+        top.append(top[-1])
 
     log.info(
-        "OCR %d/%d succeeded — top-2 have %d, %d regions (all: %s)",
-        len(results), candidates, len(top_2[0]), len(top_2[1]),
+        "OCR %d/%d succeeded — top-%d have %s regions (all: %s)",
+        len(results), candidates, top_k, [len(r) for r in top],
         [len(r) for r in results],
     )
 
-    if not top_2[0]:
+    if not top[0]:
         log.warning("All %d OCR candidates returned 0 regions.", candidates)
-        return [[], []]
+        return empty_result
 
     # Consensus-stabilize each top candidate
-    stabilized = [_consensus_refine(c, results) for c in top_2]
+    stabilized = [_consensus_refine(c, results) for c in top]
     return stabilized

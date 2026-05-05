@@ -81,8 +81,14 @@ def _process_slide(
     image_bytes  = slide_input["image_bytes"]
     mime_type    = slide_input["mime_type"]
 
-    # Stage 1: OCR — returns top-2 consensus-stabilized candidates.
-    candidates = ocr.run(image_bytes, mime_type, config.gemini_api_key, config.gemini_model, thinking_budget=config.thinking_budget, candidates=config.ocr_candidates)
+    # Stage 1: OCR — returns top-k consensus-stabilized candidates.
+    candidates = ocr.run(
+        image_bytes, mime_type, config.gemini_api_key, config.gemini_model,
+        thinking_budget=config.gemini_thinking_budget,
+        candidates=config.gemini_ocr_candidates,
+        top_k=config.gemini_ocr_top_k,
+        timeout=config.gemini_timeout,
+    )
     log.debug("Slide %d: OCR → %d candidates.", idx, len(candidates))
 
     results: list[tuple[bytes, list[EnrichedRegion]]] = []
@@ -90,7 +96,8 @@ def _process_slide(
         # Stage 2: Enrichment
         enriched = enrichment.run(
             image_bytes, mime_type, regions, config.gemini_api_key, config.gemini_model,
-            thinking_budget=config.thinking_budget,
+            thinking_budget=config.gemini_thinking_budget,
+            timeout=config.gemini_timeout,
         )
         log.debug("Slide %d candidate %d: enrichment → %d region(s).", idx, i, len(enriched))
 

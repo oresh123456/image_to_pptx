@@ -57,18 +57,25 @@ def test_parse_raw_full_toml_dict():
     """Input: complete raw dict → Output: Config with all fields from dict."""
     raw = {
         "api_keys": {"gemini": "g-key", "replicate": "r-key"},
-        "behavior": {
-            "gemini_model": "gemini-2.0-flash",
-            "max_concurrent": 4,
-            "mask_padding_px": 16,
-            "mask_blur_radius": 3.0,
+        "gemini": {
+            "model": "gemini-2.0-flash",
+            "thinking_budget": 5,
+            "ocr_candidates": 8,
+            "ocr_top_k": 3,
+            "timeout": 120,
         },
+        "replicate": {"max_concurrent": 4},
+        "masking": {"padding_px": 16, "blur_radius": 3.0},
         "output": {"suffix": "_out"},
     }
     cfg = _parse_raw(raw, env_gemini="", env_replicate="")
     assert cfg.gemini_api_key == "g-key"
     assert cfg.replicate_token == "r-key"
     assert cfg.gemini_model == "gemini-2.0-flash"
+    assert cfg.gemini_thinking_budget == 5
+    assert cfg.gemini_ocr_candidates == 8
+    assert cfg.gemini_ocr_top_k == 3
+    assert cfg.gemini_timeout == 120
     assert cfg.max_concurrent == 4
     assert cfg.mask_padding_px == 16
     assert cfg.mask_blur_radius == 3.0
@@ -83,13 +90,16 @@ def test_parse_raw_env_overrides_file():
     assert cfg.replicate_token == "env-replicate"
 
 
-def test_parse_raw_behavior_section_parsed():
-    """Input: behavior section in raw → Output: Config fields set accordingly."""
+def test_parse_raw_sections_parsed():
+    """Input: gemini/replicate/masking sections → Output: Config fields set."""
     raw = {
         "api_keys": {"gemini": "g", "replicate": "r"},
-        "behavior": {"mask_padding_px": 20, "mask_blur_radius": 5.0, "max_concurrent": 3},
+        "gemini": {"ocr_candidates": 5},
+        "replicate": {"max_concurrent": 3},
+        "masking": {"padding_px": 20, "blur_radius": 5.0},
     }
     cfg = _parse_raw(raw, env_gemini="", env_replicate="")
+    assert cfg.gemini_ocr_candidates == 5
     assert cfg.mask_padding_px == 20
     assert cfg.mask_blur_radius == 5.0
     assert cfg.max_concurrent == 3

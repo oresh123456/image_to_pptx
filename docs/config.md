@@ -19,19 +19,25 @@ Copy this into `config.toml`:
 
 ```toml
 [api_keys]
-gemini   = ""   # paste your Google AI Studio key
-replicate = ""  # paste your Replicate token
+gemini    = ""   # paste your Google AI Studio key
+replicate = ""   # paste your Replicate token
 
-[behavior]
-gemini_model    = "gemini-3.1-flash-image-preview"
-max_concurrent  = 1    # raise to 5 once your Replicate account has > $5 credit
-mask_padding_px = 12   # pixels of padding around each text bbox in the inpaint mask
-mask_blur_radius = 2   # Gaussian blur radius applied to the mask (0 = no blur)
-thinking_budget = 1    # Gemini thinking token budget (1 = minimal thinking)
-ocr_candidates  = 10   # parallel OCR calls per slide; top-2 consensus-stabilized → 2 slides output
+[gemini]
+model           = "gemini-3.1-flash-image-preview"
+thinking_budget = 1      # thinking tokens (1 = minimal)
+ocr_candidates  = 10    # parallel OCR calls per slide
+ocr_top_k       = 2     # how many top candidates to select
+timeout         = 300   # HTTP timeout in seconds
+
+[replicate]
+max_concurrent = 1      # raise to 5 once account has > $5 credit
+
+[masking]
+padding_px  = 12
+blur_radius = 2
 
 [output]
-suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx
+suffix = "_reconstructed"
 ```
 
 ## Fields
@@ -40,12 +46,14 @@ suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx
 |---------|-------|------|---------|-------|
 | `api_keys` | `gemini` | str | *required* | env `GEMINI_API_KEY` overrides |
 | `api_keys` | `replicate` | str | *required* | env `REPLICATE_API_TOKEN` overrides |
-| `behavior` | `gemini_model` | str | `"gemini-3.1-flash-image-preview"` | |
-| `behavior` | `max_concurrent` | int | `1` | Replicate free-tier: keep at 1 |
-| `behavior` | `mask_padding_px` | int | `12` | |
-| `behavior` | `mask_blur_radius` | float | `2.0` | `0` = hard edges |
-| `behavior` | `thinking_budget` | int | `1` | Gemini thinking tokens; `1` = minimal thinking |
-| `behavior` | `ocr_candidates` | int | `10` | Parallel OCR calls per slide; top-2 consensus-stabilized |
+| `gemini` | `model` | str | `"gemini-3.1-flash-image-preview"` | |
+| `gemini` | `thinking_budget` | int | `1` | Gemini thinking tokens; `1` = minimal |
+| `gemini` | `ocr_candidates` | int | `10` | Parallel OCR calls per slide |
+| `gemini` | `ocr_top_k` | int | `2` | Top-k candidates selected from OCR |
+| `gemini` | `timeout` | int | `300` | HTTP timeout for all Gemini calls |
+| `replicate` | `max_concurrent` | int | `1` | Free-tier: keep at 1 |
+| `masking` | `padding_px` | int | `12` | |
+| `masking` | `blur_radius` | float | `2.0` | `0` = hard edges |
 | `output` | `suffix` | str | `"_reconstructed"` | |
 
 ## Hard-coded values (not configurable)

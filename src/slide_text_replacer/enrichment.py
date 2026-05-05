@@ -361,6 +361,7 @@ def run(
     api_key: str,
     model: str = "gemini-3.1-flash-image-preview",
     thinking_budget: int = 1,
+    timeout: int = 300,
 ) -> list[EnrichedRegion]:
     """
     Enrich OCR regions with font family, weight, color, and refined geometry.
@@ -389,7 +390,7 @@ def run(
     prompt = _build_prompt(regions)
 
     def _attempt() -> list[EnrichedRegion]:
-        raw = _call_gemini(api_key, model, image_bytes, mime_type, prompt, thinking_budget=thinking_budget)
+        raw = _call_gemini(api_key, model, image_bytes, mime_type, prompt, timeout=timeout, thinking_budget=thinking_budget)
         enriched = _parse_enriched(raw, regions)
         log.debug("Enrichment returned %d region(s).", len(enriched))
         return enriched
