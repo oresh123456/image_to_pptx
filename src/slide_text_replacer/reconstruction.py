@@ -45,9 +45,11 @@ RTL rendering (notes.md §6.1 and §6.2):
 
 from __future__ import annotations
 
+import copy
 import io
 import logging
 
+from lxml import etree
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.util import Emu, Pt
@@ -235,3 +237,137 @@ def rebuild_slide(
             log.warning(
                 "Failed to add text box for %r: %s", region.text[:30], exc
             )
+
+
+def add_candidate_slide(
+    prs,
+    clean_image_bytes: bytes,
+    enriched_regions: list[EnrichedRegion],
+    original_slide,
+    config: Config,
+):
+    """
+    Create a new blank slide with the inpainted image and text overlays.
+
+    Uses the blank slide layout and positions the image at the same bounds
+    as the original slide's picture.
+
+    Args:
+        prs:                The Presentation object.
+        clean_image_bytes:  Inpainted image bytes (PNG).
+        enriched_regions:   Text regions with visual metadata.
+        original_slide:     The original slide (used for slide dimensions reference).
+        config:             Pipeline config.
+
+    Returns:
+        The newly created slide object.
+    """
+    # Use blank layout (index 6) or fall back to first available
+    layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
+    new_slide = prs.slides.add_slide(layout)
+
+    # Use full slide dimensions for the image
+    slide_width = prs.slide_width
+    slide_height = prs.slide_height
+
+    # Add the clean image covering the full slide
+    pic = new_slide.shapes.add_picture(
+        io.BytesIO(clean_image_bytes),
+        Emu(0), Emu(0),
+        width=slide_width, height=slide_height,
+    )
+
+    # Add text boxes
+    for region in enriched_regions:
+        try:
+            _add_text_box(
+                new_slide, region,
+                Emu(0), Emu(0), slide_width, slide_height,
+                config,
+            )
+        except Exception as exc:
+            log.warning(
+                "Failed to add text box for %r on candidate slide: %s",
+                region.text[:30], exc,
+            )
+
+    return new_slide
+
+
+def interleave_candidate_slides(prs, slide_inputs: list[dict], added_slides: list) -> None:
+    """
+    Reorder slides so candidates are interleaved: [1a, 1b, 2a, 2b, ...].
+
+    After reconstruction, original slides are in their original positions and
+    candidate slides are appended at the end. This function moves them into
+    interleaved order.
+
+    Args:
+        prs:           The Presentation object.
+        slide_inputs:  Original slide input dicts (in order).
+        added_slides:  List of (original_slide_idx, new_slide) tuples.
+    """
+    if not added_slides:
+        return
+
+    # Build a map: original_slide_idx → new_slide
+    idx_to_new_slide = {idx: slide for idx, slide in added_slides}
+
+    # Build desired order: for each original slide, insert its candidate after it
+    slide_list = prs.slides._sldIdLst
+    # Get current slide elements in order
+    sldId_elements = list(slide_list)
+
+    # Map slide objects to their sldId elements by rId
+    slide_id_map = {}
+    for sldId_elem in sldId_elements:
+        rId = sldId_elem.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+        slide_id_map[rId] = sldId_elem
+
+    # Build new order: for each original slide_input, place original then candidate
+    new_order = []
+    original_rIds = set()
+
+    for si in slide_inputs:
+        idx = si["slide_idx"]
+        # Find the rId for the original slide
+        orig_slide = si["slide"]
+        orig_rId = None
+        for rel in prs.part.rels.values():
+            if hasattr(rel, '_target') and rel._target is orig_slide.part:
+                orig_rId = rel.rId
+                break
+        if orig_rId is None:
+            # Fallback: find by slide part
+            for rId, sldId_elem in slide_id_map.items():
+                # We'll use position-based matching below
+                pass
+
+        # Add original slide's sldId
+        if orig_rId and orig_rId in slide_id_map:
+            new_order.append(slide_id_map[orig_rId])
+            original_rIds.add(orig_rId)
+
+        # Add candidate slide's sldId if it exists
+        if idx in idx_to_new_slide:
+            cand_slide = idx_to_new_slide[idx]
+            cand_rId = None
+            for rel in prs.part.rels.values():
+                if hasattr(rel, '_target') and rel._target is cand_slide.part:
+                    cand_rId = rel.rId
+                    break
+            if cand_rId and cand_rId in slide_id_map:
+                new_order.append(slide_id_map[cand_rId])
+                original_rIds.add(cand_rId)
+
+    # Add any remaining slides not in our map (shouldn't happen, but safe)
+    for sldId_elem in sldId_elements:
+        rId = sldId_elem.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+        if rId not in original_rIds:
+            new_order.append(sldId_elem)
+
+    # Clear and re-add in new order
+    for elem in list(slide_list):
+        slide_list.remove(elem)
+    for elem in new_order:
+        slide_list.append(elem)

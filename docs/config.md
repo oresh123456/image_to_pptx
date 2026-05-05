@@ -28,7 +28,7 @@ max_concurrent  = 1    # raise to 5 once your Replicate account has > $5 credit
 mask_padding_px = 12   # pixels of padding around each text bbox in the inpaint mask
 mask_blur_radius = 2   # Gaussian blur radius applied to the mask (0 = no blur)
 thinking_budget = 1    # Gemini thinking token budget (1 = minimal thinking)
-ocr_candidates  = 3    # parallel OCR calls per slide, pick result with most regions
+ocr_candidates  = 10   # parallel OCR calls per slide; top-2 consensus-stabilized → 2 slides output
 
 [output]
 suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx
@@ -45,7 +45,7 @@ suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx
 | `behavior` | `mask_padding_px` | int | `12` | |
 | `behavior` | `mask_blur_radius` | float | `2.0` | `0` = hard edges |
 | `behavior` | `thinking_budget` | int | `1` | Gemini thinking tokens; `1` = minimal thinking |
-| `behavior` | `ocr_candidates` | int | `3` | Parallel OCR calls per slide; picks result with most regions |
+| `behavior` | `ocr_candidates` | int | `10` | Parallel OCR calls per slide; top-2 consensus-stabilized |
 | `output` | `suffix` | str | `"_reconstructed"` | |
 
 ## Hard-coded values (not configurable)

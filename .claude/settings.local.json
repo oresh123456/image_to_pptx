@@ -20,7 +20,8 @@
       "WebFetch(domain:gist.github.com)",
       "WebFetch(domain:stackoverflow.com)",
       "WebSearch",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(./venv/Scripts/pip install:*)"
     ],
     "defaultMode": "plan"
   }

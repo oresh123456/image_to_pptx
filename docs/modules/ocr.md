@@ -4,7 +4,7 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 
 ## Public functions
 
-### `run(image_bytes, mime_type, api_key, model, thinking_budget, candidates) -> list[Region]`
+### `run(image_bytes, mime_type, api_key, model, thinking_budget, candidates) -> list[list[Region]]`
 
 | Input             | Type    | Default              | Description                     |
 |-------------------|---------|----------------------|---------------------------------|
@@ -13,22 +13,37 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 | `api_key`         | `str`   | —                    | Google AI Studio API key.       |
 | `model`           | `str`   | `"gemini-3.1-flash-image-preview"` | Gemini model name.              |
 | `thinking_budget` | `int`   | `1`                  | Thinking token budget (1 = minimal). |
-| `candidates`      | `int`   | `3`                  | Parallel OCR calls; picks best (most regions). |
+| `candidates`      | `int`   | `10`                 | Parallel OCR calls; top-2 selected + consensus-stabilized. |
 
-| Output | Type            | Description |
-|--------|-----------------|-------------|
-| return | `list[Region]`  | Detected text regions. Empty list on total failure. |
+| Output | Type                 | Description |
+|--------|----------------------|-------------|
+| return | `list[list[Region]]` | Top-2 candidates, each consensus-stabilized. `[[], []]` on total failure. |
 
 | Raises | When |
 |--------|------|
-| *(never)* | All exceptions caught internally. Returns `[]` if all candidates fail. |
+| *(never)* | All exceptions caught internally. Returns `[[], []]` if all candidates fail. |
 
-### Best-of-N parallel strategy
+### Best-of-N + top-2 + consensus strategy
 
 - Fires `candidates` parallel calls via inner ThreadPoolExecutor.
-- Picks the result with the most regions (more regions = more complete, no false positives observed).
-- If some candidates fail, still returns the best successful result.
-- If all candidates fail: logs error, returns `[]`.
+- Ranks results by region count descending, picks top 2.
+- If only 1 successful candidate, pads to 2 (duplicates it).
+- Consensus-stabilizes each top-2 candidate using median coords from all N candidates.
+- If all candidates fail: logs error, returns `[[], []]`.
+
+### Consensus stabilization
+
+For each region in a candidate, finds text+proximity matches across all N results:
+- Text match: exact (whitespace-normalized) or fuzzy (SequenceMatcher >= 0.85).
+- Centroid proximity: < 150 units (prevents matching repeated text at different positions).
+- If >= 3 matches: takes median box_2d (per-coord) + median font_size_px.
+- If < 3 matches: keeps original values.
+- All box_2d values clamped to [0, 1000].
+
+### Output PPTX impact
+
+The pipeline produces **2 slides per input slide** (interleaved: [1a, 1b, 2a, 2b, ...]).
+User manually picks the better version for each slide.
 
 ### Output guarantees
 
@@ -50,4 +65,4 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 
 ## Dependencies
 
-`requests`, `schemas` (Region), stdlib `base64`, `json`, `logging`, `concurrent.futures`.
+`requests`, `schemas` (Region), stdlib `base64`, `json`, `logging`, `statistics`, `difflib`, `concurrent.futures`.

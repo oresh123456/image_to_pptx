@@ -1,7 +1,10 @@
 """
 Tests for pipeline.py — orchestration with ThreadPoolExecutor.
 
-Verifies I/O contracts documented in docs/modules/pipeline.md.
+Verifies:
+  - _process_slide() calls OCR once, then enrichment/masking/inpainting 2x (top-2 candidates)
+  - run_pipeline() saves output, handles errors, creates 2 slides per input (interleaved A/B)
+
 All tests are local — no API calls. All stage modules mocked.
 """
 
@@ -46,23 +49,28 @@ def _enriched_region(text: str = "test") -> EnrichedRegion:
 @patch("slide_text_replacer.pipeline.masking")
 @patch("slide_text_replacer.pipeline.enrichment")
 @patch("slide_text_replacer.pipeline.ocr")
-def test_process_slide_calls_all_stages(mock_ocr, mock_enrich, mock_masking, mock_inpaint):
-    """Input: slide_input → Output: all 4 stages called (OCR, enrichment, masking, inpainting)."""
+def test_process_slide_calls_all_stages_twice(mock_ocr, mock_enrich, mock_masking, mock_inpaint):
+    """Input: slide_input → Output: OCR once, enrichment/masking/inpainting 2x (top-2 candidates)."""
     from slide_text_replacer.pipeline import _process_slide
     from slide_text_replacer.schemas import Region
 
-    mock_ocr.run.return_value = [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)]
+    # OCR returns 2 candidates
+    mock_ocr.run.return_value = [
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+        [Region(text="y", box_2d=(200, 200, 300, 300), font_size_px=16.0)],
+    ]
     mock_enrich.run.return_value = [_enriched_region()]
     mock_masking.build_mask.return_value = b"mask"
     mock_inpaint.inpaint.return_value = b"clean"
 
     slide_input = {"slide_idx": 1, "image_bytes": b"img", "mime_type": "image/png"}
-    _process_slide(slide_input, "v1", _make_config())
+    result = _process_slide(slide_input, "v1", _make_config())
 
     mock_ocr.run.assert_called_once()
-    mock_enrich.run.assert_called_once()
-    mock_masking.build_mask.assert_called_once()
-    mock_inpaint.inpaint.assert_called_once()
+    assert mock_enrich.run.call_count == 2
+    assert mock_masking.build_mask.call_count == 2
+    assert mock_inpaint.inpaint.call_count == 2
+    assert len(result) == 2
 
 
 @patch("slide_text_replacer.pipeline.inpainting")
@@ -74,7 +82,10 @@ def test_process_slide_passes_config_params(mock_ocr, mock_enrich, mock_masking,
     from slide_text_replacer.pipeline import _process_slide
     from slide_text_replacer.schemas import Region
 
-    mock_ocr.run.return_value = [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)]
+    mock_ocr.run.return_value = [
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+    ]
     mock_enrich.run.return_value = [_enriched_region()]
     mock_masking.build_mask.return_value = b"mask"
     mock_inpaint.inpaint.return_value = b"clean"
@@ -113,10 +124,14 @@ def test_run_pipeline_saves_output(mock_extract, mock_ocr, mock_enrich, mock_mas
     }
     mock_extract.extract_slide_inputs.return_value = (mock_prs, [mock_slide_input])
     mock_inpaint.resolve_version.return_value = "v1"
-    mock_ocr.run.return_value = [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)]
+    mock_ocr.run.return_value = [
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+    ]
     mock_enrich.run.return_value = [_enriched_region()]
     mock_masking.build_mask.return_value = b"mask"
     mock_inpaint.inpaint.return_value = b"clean"
+    mock_recon.add_candidate_slide.return_value = MagicMock()
 
     output = str(tmp_path / "output.pptx")
     run_pipeline("input.pptx", output, _make_config())
@@ -157,10 +172,14 @@ def test_run_pipeline_resolves_version_once(mock_extract, mock_ocr, mock_enrich,
     mock_prs = MagicMock()
     mock_extract.extract_slide_inputs.return_value = (mock_prs, slides)
     mock_inpaint.resolve_version.return_value = "v1"
-    mock_ocr.run.return_value = [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)]
+    mock_ocr.run.return_value = [
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+    ]
     mock_enrich.run.return_value = [_enriched_region()]
     mock_masking.build_mask.return_value = b"mask"
     mock_inpaint.inpaint.return_value = b"clean"
+    mock_recon.add_candidate_slide.return_value = MagicMock()
 
     output = str(tmp_path / "output.pptx")
     run_pipeline("input.pptx", output, _make_config())
@@ -210,7 +229,10 @@ def test_run_pipeline_per_slide_error_continues(mock_extract, mock_ocr, mock_enr
     mock_prs = MagicMock()
     mock_extract.extract_slide_inputs.return_value = (mock_prs, [slide1, slide2])
     mock_inpaint.resolve_version.return_value = "v1"
-    mock_ocr.run.return_value = [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)]
+    mock_ocr.run.return_value = [
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+    ]
     mock_enrich.run.return_value = [_enriched_region()]
     mock_masking.build_mask.return_value = b"mask"
 
@@ -243,7 +265,10 @@ def test_run_pipeline_reconstruction_error_still_saves(mock_extract, mock_ocr, m
     mock_prs = MagicMock()
     mock_extract.extract_slide_inputs.return_value = (mock_prs, [slide])
     mock_inpaint.resolve_version.return_value = "v1"
-    mock_ocr.run.return_value = [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)]
+    mock_ocr.run.return_value = [
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+        [Region(text="x", box_2d=(0, 0, 100, 100), font_size_px=16.0)],
+    ]
     mock_enrich.run.return_value = [_enriched_region()]
     mock_masking.build_mask.return_value = b"mask"
     mock_inpaint.inpaint.return_value = b"clean"

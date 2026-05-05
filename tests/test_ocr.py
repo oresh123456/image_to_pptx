@@ -1,7 +1,12 @@
 """
-Tests for ocr.py — Gemini OCR call and response parsing.
+Tests for ocr.py — Gemini OCR with top-2 consensus stabilization.
 
-Verifies I/O contracts documented in docs/modules/ocr.md.
+Verifies I/O contracts documented in docs/modules/ocr.md:
+  - run() fires N parallel OCR calls, returns top-2 consensus-stabilized candidates
+  - _text_matches() fuzzy text + centroid proximity matching
+  - _consensus_refine() median coordinate stabilization from all N candidates
+  - _parse_regions() JSON parsing + validation
+
 All tests are local — no API calls. HTTP mocked via unittest.mock.patch.
 """
 
@@ -10,7 +15,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from slide_text_replacer.ocr import _parse_regions, _extract_json_array, run
+from slide_text_replacer.ocr import _parse_regions, _extract_json_array, run, _text_matches, _consensus_refine
 from slide_text_replacer.schemas import Region
 
 
@@ -117,46 +122,51 @@ def _make_gemini_response(regions_json: str) -> MagicMock:
 
 
 @patch("slide_text_replacer.ocr.requests.post")
-def test_run_success_returns_regions(mock_post, sample_image_bytes):
-    """Input: valid image → Output: list[Region] from Gemini response."""
+def test_run_success_returns_two_candidates(mock_post, sample_image_bytes):
+    """Input: valid image → Output: list of 2 region lists."""
     regions_json = json.dumps([
         {"text": "title", "box_2d": [10, 10, 100, 900], "font_size_px": 30}
     ])
     mock_post.return_value = _make_gemini_response(regions_json)
 
     result = run(sample_image_bytes, "image/png", "fake-key", "gemini-2.5-pro", candidates=1)
-    assert len(result) == 1
-    assert result[0].text == "title"
+    assert len(result) == 2  # always returns 2 candidates
+    assert len(result[0]) == 1
+    assert result[0][0].text == "title"
+    # With 1 candidate, both are the same (padded)
+    assert len(result[1]) == 1
     assert mock_post.call_count == 1
 
 
-# ── run(): best-of-N candidate selection ─────────────────────────────────────
+# ── run(): top-2 selection + consensus ───────────────────────────────────────
 
 @patch("slide_text_replacer.ocr.requests.post")
-def test_run_picks_candidate_with_most_regions(mock_post, sample_image_bytes):
-    """3 candidates return different region counts → picks the one with most."""
+def test_run_picks_top2_by_region_count(mock_post, sample_image_bytes):
+    """3 candidates → top-2 are the ones with most regions."""
     resp_1 = _make_gemini_response(json.dumps([
         {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
-    ]))
-    resp_3 = _make_gemini_response(json.dumps([
-        {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
-        {"text": "b", "box_2d": [200, 200, 300, 300], "font_size_px": 16},
-        {"text": "c", "box_2d": [400, 400, 500, 500], "font_size_px": 16},
     ]))
     resp_2 = _make_gemini_response(json.dumps([
         {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
         {"text": "b", "box_2d": [200, 200, 300, 300], "font_size_px": 16},
+        {"text": "c", "box_2d": [400, 400, 500, 500], "font_size_px": 16},
     ]))
-    mock_post.side_effect = [resp_1, resp_3, resp_2]
+    resp_3 = _make_gemini_response(json.dumps([
+        {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
+        {"text": "d", "box_2d": [600, 600, 700, 700], "font_size_px": 16},
+    ]))
+    mock_post.side_effect = [resp_1, resp_2, resp_3]
 
     result = run(sample_image_bytes, "image/png", "fake-key", candidates=3)
-    assert len(result) == 3
+    assert len(result) == 2  # always 2 candidates
+    assert len(result[0]) == 3  # top candidate has 3 regions
+    assert len(result[1]) == 2  # second has 2
     assert mock_post.call_count == 3
 
 
 @patch("slide_text_replacer.ocr.requests.post")
 def test_run_partial_failures_still_returns_best(mock_post, sample_image_bytes):
-    """2/3 candidates fail → still returns the successful one."""
+    """2/3 candidates fail → still returns 2 lists (padded from single success)."""
     good_resp = _make_gemini_response(json.dumps([
         {"text": "survivor", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
     ]))
@@ -167,8 +177,10 @@ def test_run_partial_failures_still_returns_best(mock_post, sample_image_bytes):
     ]
 
     result = run(sample_image_bytes, "image/png", "fake-key", candidates=3)
-    assert len(result) == 1
-    assert result[0].text == "survivor"
+    assert len(result) == 2
+    assert result[0][0].text == "survivor"
+    # Padded: both candidates are the same
+    assert result[1][0].text == "survivor"
 
 
 # ── run(): error handling ────────────────────────────────────────────────────
@@ -176,11 +188,11 @@ def test_run_partial_failures_still_returns_best(mock_post, sample_image_bytes):
 
 @patch("slide_text_replacer.ocr.requests.post")
 def test_run_returns_empty_on_all_candidates_failed(mock_post, sample_image_bytes):
-    """Input: all candidates fail → Output: empty list (graceful degradation)."""
+    """Input: all candidates fail → Output: [[], []] (graceful degradation)."""
     mock_post.side_effect = RuntimeError("network error")
 
     result = run(sample_image_bytes, "image/png", "fake-key", candidates=3)
-    assert result == []
+    assert result == [[], []]
     assert mock_post.call_count == 3
 
 
@@ -200,3 +212,77 @@ def test_extract_json_array_json_repair_fixes_unquoted_keys():
     result = _extract_json_array(raw)
     assert len(result) == 1
     assert result[0]["text"] == "שלום"
+
+
+# ── _text_matches tests ─────────────���────────────────────────────────────────
+
+def test_text_matches_exact():
+    """Exact same text + close centroids → match."""
+    a = Region(text="שלום עולם", box_2d=(100, 100, 200, 400), font_size_px=16.0)
+    b = Region(text="שלום עולם", box_2d=(105, 98, 205, 395), font_size_px=16.0)
+    assert _text_matches(a, b) is True
+
+
+def test_text_matches_fuzzy():
+    """Slightly different text (>= 0.85 ratio) + close centroids → match."""
+    a = Region(text="שלום עולם טוב", box_2d=(100, 100, 200, 400), font_size_px=16.0)
+    b = Region(text="שלום עולם טו", box_2d=(100, 100, 200, 400), font_size_px=16.0)
+    assert _text_matches(a, b) is True
+
+
+def test_text_matches_centroid_filter():
+    """Same text but far apart centroids → no match."""
+    a = Region(text="שלום", box_2d=(100, 100, 200, 200), font_size_px=16.0)
+    b = Region(text="שלום", box_2d=(700, 700, 800, 800), font_size_px=16.0)
+    assert _text_matches(a, b) is False
+
+
+def test_text_matches_different_text():
+    """Completely different text → no match."""
+    a = Region(text="hello", box_2d=(100, 100, 200, 200), font_size_px=16.0)
+    b = Region(text="world", box_2d=(100, 100, 200, 200), font_size_px=16.0)
+    assert _text_matches(a, b) is False
+
+
+# ── _consensus_refine tests ──────────────��───────────────────────────────────
+
+def test_consensus_refine_takes_median():
+    """Jittered coords across candidates → median is taken."""
+    candidate = [Region(text="title", box_2d=(100, 200, 300, 800), font_size_px=20.0)]
+    all_candidates = [
+        [Region(text="title", box_2d=(98, 198, 302, 798), font_size_px=19.0)],
+        [Region(text="title", box_2d=(102, 202, 298, 802), font_size_px=21.0)],
+        [Region(text="title", box_2d=(100, 200, 300, 800), font_size_px=20.0)],
+        [Region(text="title", box_2d=(104, 196, 304, 796), font_size_px=22.0)],
+    ]
+    result = _consensus_refine(candidate, all_candidates, min_matches=3)
+    assert len(result) == 1
+    # Median of [98,102,100,104] = 101, [198,202,200,196] = 199, etc.
+    # With 4 matches: median is average of middle two
+    ymin = result[0].box_2d[0]
+    assert 99 <= ymin <= 102  # median of [98,100,102,104]
+
+
+def test_consensus_refine_below_min_keeps_original():
+    """< min_matches → keeps original coords."""
+    candidate = [Region(text="rare", box_2d=(100, 200, 300, 400), font_size_px=16.0)]
+    all_candidates = [
+        [Region(text="rare", box_2d=(110, 210, 310, 410), font_size_px=18.0)],
+        [Region(text="other", box_2d=(500, 500, 600, 600), font_size_px=16.0)],
+    ]
+    result = _consensus_refine(candidate, all_candidates, min_matches=3)
+    assert result[0].box_2d == (100, 200, 300, 400)
+    assert result[0].font_size_px == 16.0
+
+
+def test_consensus_refine_clamps_to_bounds():
+    """Median result is clamped to [0, 1000]."""
+    candidate = [Region(text="edge", box_2d=(0, 0, 1000, 1000), font_size_px=16.0)]
+    all_candidates = [
+        [Region(text="edge", box_2d=(0, 0, 1000, 1000), font_size_px=16.0)],
+        [Region(text="edge", box_2d=(0, 0, 1000, 1000), font_size_px=16.0)],
+        [Region(text="edge", box_2d=(0, 0, 1000, 1000), font_size_px=16.0)],
+    ]
+    result = _consensus_refine(candidate, all_candidates, min_matches=3)
+    for coord in result[0].box_2d:
+        assert 0 <= coord <= 1000

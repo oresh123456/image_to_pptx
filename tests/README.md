@@ -61,6 +61,11 @@ Results saved to `tests/output/` (gitignored):
 | `overlay_only.pptx` | Text boxes align with baked-in text underneath |
 | `full_result.pptx` | Clean background + correctly positioned text overlays |
 
+**Note:** Output PPTX has **2x slides** (interleaved A/B versions per input slide).
+OCR fires 10 parallel calls, picks top-2 by region count, consensus-stabilizes
+coordinates using median from all 10 results, then processes both through the
+full pipeline. User picks the better version for each slide.
+
 ### What each test file validates
 
 | File | Tests | API calls |

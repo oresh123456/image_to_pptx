@@ -1,19 +1,26 @@
 """
 Module: ocr
 ===========
-Calls Gemini 2.5 Pro to detect all text regions in a slide image.
+Calls Gemini to detect all text regions in a slide image via best-of-N
+parallel OCR with top-2 selection and median consensus stabilization.
 
-This is the first per-slide API call in the pipeline. It sends the raw slide
-image to Gemini and receives back a JSON array describing every text element:
-its content, its normalized bounding box (0-1000 coords), and an estimated
-single-line font size in pixels.
+This is the first per-slide API call in the pipeline. It fires N parallel
+requests to Gemini, each returning a JSON array of text elements. The top 2
+results (by region count) are consensus-stabilized using median coordinates
+from all N candidates, then both are returned for downstream processing.
 
 Core functions (used in the pipeline):
-  - run(image_bytes, mime_type, api_key, model) -> list[Region]:
-    Main entry point. Encodes the image, builds the request, calls Gemini,
-    parses the JSON response into Region objects, and returns them.
-    Retries exactly once on any failure. Returns an empty list after two
-    failures so the pipeline can continue with other slides.
+  - run(image_bytes, mime_type, api_key, model, ...) -> list[list[Region]]:
+    Main entry point. Fires N parallel Gemini calls, ranks by region count,
+    picks top 2, consensus-stabilizes each using all N results.
+    Returns [[], []] if all candidates fail.
+
+  - _consensus_refine(candidate, all_candidates, min_matches) -> list[Region]:
+    For each region, finds text+proximity matches across all N candidates and
+    takes median box_2d + font_size_px when >= min_matches found.
+
+  - _text_matches(a, b) -> bool:
+    Fuzzy text match (SequenceMatcher >= 0.85) + centroid proximity < 150.
 
 Helper functions (not called from outside this module):
   - _call_gemini(api_key, model, image_bytes, mime_type, prompt, timeout) -> str:
@@ -24,7 +31,8 @@ Helper functions (not called from outside this module):
     Skips items that are missing required fields or have degenerate boxes.
 
 Pipeline role: first per-slide stage. Called inside each slide's ThreadPoolExecutor
-  future. Its output list[Region] feeds both enrichment.run() and masking.build_mask().
+  future. Its output list[list[Region]] (2 candidates) feeds both enrichment.run()
+  and masking.build_mask() — each candidate processed independently.
 
 Prompt version: v1.0 (full text in docs/prompts.md).
 """
@@ -35,6 +43,8 @@ import base64
 import json
 import logging
 import re
+import statistics
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import requests
@@ -290,19 +300,90 @@ def _parse_regions(raw_json: str) -> list[Region]:
     return regions
 
 
+
+def _centroid(box: tuple[int, int, int, int]) -> tuple[float, float]:
+    """Return (y_center, x_center) of a box_2d tuple."""
+    ymin, xmin, ymax, xmax = box
+    return ((ymin + ymax) / 2, (xmin + xmax) / 2)
+
+
+def _text_matches(a: Region, b: Region, max_centroid_dist: float = 150.0) -> bool:
+    """
+    Check if two regions refer to the same text element.
+
+    Uses exact match first, then fuzzy (SequenceMatcher >= 0.85).
+    Also requires centroid proximity < max_centroid_dist to avoid
+    matching repeated text in different locations.
+    """
+    # Centroid proximity check
+    cy_a, cx_a = _centroid(a.box_2d)
+    cy_b, cx_b = _centroid(b.box_2d)
+    dist = ((cy_a - cy_b) ** 2 + (cx_a - cx_b) ** 2) ** 0.5
+    if dist > max_centroid_dist:
+        return False
+
+    # Text match: exact (whitespace-normalized) or fuzzy
+    ta = " ".join(a.text.split())
+    tb = " ".join(b.text.split())
+    if ta == tb:
+        return True
+    return SequenceMatcher(None, ta, tb).ratio() >= 0.85
+
+
+def _consensus_refine(
+    candidate: list[Region],
+    all_candidates: list[list[Region]],
+    min_matches: int = 3,
+) -> list[Region]:
+    """
+    Stabilize a candidate's coordinates using median consensus from all candidates.
+
+    For each region in candidate, find text+proximity matches across all candidates.
+    If >= min_matches found: take median box_2d (per-coord) and median font_size_px.
+    If < min_matches: keep original values.
+    Clamps box_2d to [0, 1000].
+    """
+    refined: list[Region] = []
+    for region in candidate:
+        matched_boxes: list[tuple] = []
+        matched_sizes: list[float] = []
+        for other_candidate in all_candidates:
+            for other_region in other_candidate:
+                if _text_matches(region, other_region):
+                    matched_boxes.append(other_region.box_2d)
+                    matched_sizes.append(other_region.font_size_px)
+                    break  # one match per candidate
+
+        if len(matched_boxes) >= min_matches:
+            median_box = tuple(
+                max(0, min(1000, int(statistics.median(coords))))
+                for coords in zip(*matched_boxes)
+            )
+            median_size = statistics.median(matched_sizes)
+            refined.append(Region(
+                text=region.text,
+                box_2d=median_box,
+                font_size_px=median_size,
+            ))
+        else:
+            refined.append(region)
+
+    return refined
+
+
 def run(
     image_bytes: bytes,
     mime_type: str,
     api_key: str,
     model: str = "gemini-3.1-flash-image-preview",
     thinking_budget: int = 1,
-    candidates: int = 3,
-) -> list[Region]:
+    candidates: int = 10,
+) -> list[list[Region]]:
     """
-    Detect all text regions in a slide image using best-of-N parallel OCR.
+    Detect all text regions via N parallel OCR calls with top-2 consensus.
 
-    Fires N parallel calls to Gemini and picks the result with the most
-    regions (no false positives observed, so more = more complete).
+    Fires N parallel calls to Gemini, ranks by region count, picks top 2,
+    and consensus-stabilizes each using median coordinates from all N results.
 
     Args:
         image_bytes: Raw bytes of the slide image (PNG or JPEG).
@@ -310,11 +391,11 @@ def run(
         api_key:     Google AI Studio API key.
         model:       Gemini model name.
         thinking_budget: Gemini thinking token budget.
-        candidates:  Number of parallel OCR calls to fire (picks best).
+        candidates:  Number of parallel OCR calls (default 10). Top-2 selected.
 
     Returns:
-        List of Region objects with normalized 0-1000 bounding boxes.
-        Returns an empty list if all candidates failed or returned 0 regions.
+        List of 2 region lists (top-2 candidates, each consensus-stabilized).
+        Returns [[], []] if all candidates failed.
     """
     def _single_attempt() -> list[Region]:
         raw = _call_gemini(api_key, model, image_bytes, mime_type, OCR_PROMPT, thinking_budget=thinking_budget)
@@ -332,14 +413,26 @@ def run(
 
     if not results:
         log.error("All %d OCR candidates failed — no text overlay.", candidates)
-        return []
+        return [[], []]
 
-    best = max(results, key=len)
+    # Sort by region count descending, pick top 2
+    ranked = sorted(results, key=len, reverse=True)
+    top_2 = ranked[:2]
+
+    # Pad if only 1 successful candidate
+    if len(top_2) == 1:
+        top_2.append(top_2[0])
+
     log.info(
-        "OCR best-of-%d: picked %d regions (candidates returned: %s)",
-        candidates, len(best), [len(r) for r in results],
+        "OCR %d/%d succeeded — top-2 have %d, %d regions (all: %s)",
+        len(results), candidates, len(top_2[0]), len(top_2[1]),
+        [len(r) for r in results],
     )
 
-    if not best:
+    if not top_2[0]:
         log.warning("All %d OCR candidates returned 0 regions.", candidates)
-    return best
+        return [[], []]
+
+    # Consensus-stabilize each top candidate
+    stabilized = [_consensus_refine(c, results) for c in top_2]
+    return stabilized
