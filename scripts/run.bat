@@ -16,17 +16,7 @@ if not exist venv\Scripts\python.exe (
     exit /b 1
 )
 
-if not exist config.toml (
-    echo [ERROR] config.toml is missing.
-    echo         Run scripts\setup.bat to create it, then paste your API keys.
-    echo.
-    pause
-    exit /b 1
-)
-
 echo Starting slide_text_replacer...
-echo (Two dialog boxes will open: one to select your .pptx, one to choose
-echo  where to save the output.)
 echo.
 
 venv\Scripts\python.exe -m slide_text_replacer

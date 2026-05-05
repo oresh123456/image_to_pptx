@@ -128,18 +128,11 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
-REM --- Remind user to create config.toml ---
-if not exist config.toml (
-    echo.
-    echo IMPORTANT: Create config.toml with your API keys.
-    echo See docs\config.md for the full template and instructions.
-)
-
 echo.
 echo === Setup complete ===
 echo.
 echo Next steps:
-echo   1. Create config.toml (see docs\config.md for template).
-echo   2. Double-click scripts\run.bat to process a PPTX.
+echo   Double-click scripts\run.bat to start.
+echo   (On first run you'll be asked for your API keys.)
 echo.
 pause

@@ -212,23 +212,79 @@ def _parse_raw(raw: dict, env_gemini: str, env_replicate: str) -> Config:
     )
 
 
-def load_config() -> Config:
+def _config_path() -> Path:
+    """Return the canonical config.toml path (project root)."""
+    return Path(__file__).resolve().parents[2] / "config.toml"
+
+
+def has_valid_config() -> bool:
+    """Check if config.toml exists with non-empty API keys."""
+    path = _find_config_file()
+    if path is None:
+        return False
+    try:
+        with open(path, "rb") as fh:
+            raw = tomllib.load(fh)
+        api = raw.get("api_keys", {})
+        return bool(api.get("gemini")) and bool(api.get("replicate"))
+    except Exception:
+        return False
+
+
+def save_config(
+    gemini_key: str,
+    replicate_token: str,
+    ocr_candidates: int,
+    ocr_top_k: int,
+) -> Path:
+    """Write config.toml with API keys and user-exposed Gemini params.
+
+    Caps ocr_candidates at 10, ocr_top_k at ocr_candidates.
+    All other sections use hardcoded defaults.
+
+    Returns:
+        Path to the written config.toml.
+    """
+    ocr_candidates = min(max(ocr_candidates, 1), 10)
+    ocr_top_k = min(max(ocr_top_k, 1), ocr_candidates)
+
+    content = (
+        "[api_keys]\n"
+        f'gemini    = "{gemini_key}"\n'
+        f'replicate = "{replicate_token}"\n'
+        "\n"
+        "[gemini]\n"
+        'model           = "gemini-3.1-flash-image-preview"\n'
+        "thinking_budget = 1\n"
+        f"ocr_candidates  = {ocr_candidates}\n"
+        f"ocr_top_k       = {ocr_top_k}\n"
+        "timeout         = 300\n"
+        "\n"
+        "[replicate]\n"
+        "max_concurrent = 1\n"
+        "\n"
+        "[masking]\n"
+        "padding_px  = 12\n"
+        "blur_radius = 2\n"
+        "\n"
+        "[output]\n"
+        'suffix = "_reconstructed"\n'
+    )
+
+    dest = _config_path()
+    dest.write_text(content, encoding="utf-8")
+    return dest
+
+
+def load_config() -> Config | None:
     """
     Load configuration from config.toml (if present) and environment variables.
 
-    Searches for config.toml in the current directory and the project root.
-    If no file is found, falls back to environment variables only. Both API
-    keys are required; missing either raises RuntimeError with a helpful message.
-
-    Args:
-        None.
+    Returns None if no valid config is found (keys missing and no env vars),
+    allowing the GUI to detect first-run and show key dialog.
 
     Returns:
-        Validated Config ready to pass into run_pipeline().
-
-    Raises:
-        RuntimeError: If GEMINI_API_KEY or REPLICATE_API_TOKEN cannot be found
-                      in any source (config file or environment).
+        Validated Config, or None if keys are missing.
     """
     env_gemini = os.environ.get("GEMINI_API_KEY", "")
     env_replicate = os.environ.get("REPLICATE_API_TOKEN", "")
@@ -239,4 +295,7 @@ def load_config() -> Config:
         with open(config_path, "rb") as fh:
             raw = tomllib.load(fh)
 
-    return _parse_raw(raw, env_gemini, env_replicate)
+    try:
+        return _parse_raw(raw, env_gemini, env_replicate)
+    except (RuntimeError, IndexError):
+        return None

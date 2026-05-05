@@ -14,7 +14,9 @@ from slide_text_replacer.config import (
     FONT_MAX_PT,
     VALID_FONT_FAMILIES,
     _parse_raw,
+    has_valid_config,
     load_config,
+    save_config,
 )
 
 
@@ -138,3 +140,62 @@ def test_load_config_from_env_only(monkeypatch):
     cfg = load_config()
     assert cfg.gemini_api_key == "env-g"
     assert cfg.replicate_token == "env-r"
+
+
+def test_load_config_returns_none_when_keys_missing(monkeypatch):
+    """Input: no keys anywhere → Output: None (not RuntimeError)."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("REPLICATE_API_TOKEN", raising=False)
+    monkeypatch.setattr("slide_text_replacer.config._CONFIG_SEARCH_PATHS", [])
+    assert load_config() is None
+
+
+# ── save_config(): output contract ───────────────────────────────────────────
+
+def test_save_config_creates_file(tmp_path, monkeypatch):
+    """save_config writes a valid config.toml at the project root."""
+    monkeypatch.setattr(
+        "slide_text_replacer.config._config_path",
+        lambda: tmp_path / "config.toml",
+    )
+    path = save_config("gkey", "rtoken", 5, 3)
+    assert path.exists()
+    import tomllib
+    with open(path, "rb") as f:
+        raw = tomllib.load(f)
+    assert raw["api_keys"]["gemini"] == "gkey"
+    assert raw["api_keys"]["replicate"] == "rtoken"
+    assert raw["gemini"]["ocr_candidates"] == 5
+    assert raw["gemini"]["ocr_top_k"] == 3
+
+
+def test_save_config_caps_candidates(tmp_path, monkeypatch):
+    """save_config caps ocr_candidates at 10 and ocr_top_k at candidates."""
+    monkeypatch.setattr(
+        "slide_text_replacer.config._config_path",
+        lambda: tmp_path / "config.toml",
+    )
+    save_config("g", "r", 99, 50)
+    import tomllib
+    with open(tmp_path / "config.toml", "rb") as f:
+        raw = tomllib.load(f)
+    assert raw["gemini"]["ocr_candidates"] == 10
+    assert raw["gemini"]["ocr_top_k"] == 10
+
+
+# ── has_valid_config(): output contract ──────────────────────────────────────
+
+def test_has_valid_config_true(tmp_path, monkeypatch):
+    """has_valid_config returns True when keys are present."""
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('[api_keys]\ngemini = "k"\nreplicate = "t"\n')
+    monkeypatch.setattr(
+        "slide_text_replacer.config._CONFIG_SEARCH_PATHS", [cfg_file]
+    )
+    assert has_valid_config() is True
+
+
+def test_has_valid_config_false_no_file(monkeypatch):
+    """has_valid_config returns False when no config file exists."""
+    monkeypatch.setattr("slide_text_replacer.config._CONFIG_SEARCH_PATHS", [])
+    assert has_valid_config() is False

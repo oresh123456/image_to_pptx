@@ -1,62 +1,41 @@
 """
 Module: __main__
 ================
-CLI entry point for slide_text_replacer.
+GUI entry point for slide_text_replacer.
 
 Usage:
     python -m slide_text_replacer
-        Opens a file-open dialog to select the input PPTX, then a save-as
-        dialog to choose the output location. Both dialogs must be confirmed;
-        cancelling either exits cleanly with a message.
-
-    python -m slide_text_replacer <input.pptx>
-        Input given on the command line. Opens a save-as dialog for the output.
+        Launches tkinter GUI. On first run (no config.toml or empty keys),
+        shows a key-entry dialog. After keys are set, shows the main window.
 
     python -m slide_text_replacer <input.pptx> <output.pptx>
-        Fully headless — no dialogs. Useful for scripting or CI.
+        Fully headless — no GUI. Useful for scripting.
 
-Core functions:
-  - main() -> None:
-    Parses arguments, opens dialogs as needed, validates inputs, loads config,
-    and calls run_pipeline(). Logging is configured here.
-
-Helper functions:
-  - _pick_input_file() -> str:
-    Open a tkinter file-open dialog and return the selected path, or "".
-  - _pick_output_file(input_path) -> str:
-    Open a tkinter save-as dialog pre-filled with <stem>_reconstructed.pptx
-    and return the chosen path, or "".
-
-Pipeline role: the outer shell. Wires user input to run_pipeline(). Not part
-  of the processing pipeline itself.
+Pipeline role: the outer shell. Wires user input to run_pipeline().
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
-from slide_text_replacer.config import load_config
+from slide_text_replacer.config import (
+    has_valid_config,
+    load_config,
+    save_config,
+)
 from slide_text_replacer.pipeline import run_pipeline
 
 log = logging.getLogger(__name__)
 
-# logs/ directory lives in the project root (two levels above this file).
 _LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
 
 
 def _setup_logging() -> Path:
-    """
-    Configure logging with console (INFO) and per-run file (DEBUG) handlers.
-
-    Creates a timestamped log file in the logs/ directory at the project root.
-    The directory is created if it does not exist.
-
-    Returns:
-        Path to the created log file.
-    """
+    """Configure logging with console (INFO) and per-run file (DEBUG) handlers."""
     _LOGS_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     log_file = _LOGS_DIR / f"{timestamp}.log"
@@ -64,13 +43,11 @@ def _setup_logging() -> Path:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
 
-    # Console: INFO, compact format.
     console = logging.StreamHandler()
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
     root_logger.addHandler(console)
 
-    # File: DEBUG, full timestamps and module names.
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(
@@ -81,113 +58,10 @@ def _setup_logging() -> Path:
     return log_file
 
 
-def _pick_input_file() -> str:
-    """
-    Open a file-open dialog for the user to select the input PPTX.
-
-    Uses tkinter from the Python standard library. The root window is created
-    hidden and destroyed immediately after the dialog closes, so no persistent
-    window appears.
-
-    Args:
-        None.
-
-    Returns:
-        The selected file path as a string, or an empty string if the user
-        cancelled the dialog.
-    """
-    import tkinter as tk
-    from tkinter import filedialog
-
-    root = tk.Tk()
-    root.withdraw()
-    path = filedialog.askopenfilename(
-        title="Select input PPTX",
-        filetypes=[("PowerPoint files", "*.pptx"), ("All files", "*.*")],
-    )
-    root.destroy()
-    return path or ""
-
-
-def _pick_output_file(input_path: str) -> str:
-    """
-    Open a save-as dialog for the user to choose the output PPTX location.
-
-    Pre-fills the dialog with the input file's stem plus "_reconstructed.pptx"
-    as a sensible default. The user can change both the filename and directory.
-
-    Args:
-        input_path: Path to the selected input PPTX. Used only to derive the
-                    default output filename; the file is not opened.
-
-    Returns:
-        The chosen save path as a string, or an empty string if the user
-        cancelled the dialog.
-    """
-    import tkinter as tk
-    from tkinter import filedialog
-
-    stem = Path(input_path).stem
-    default_name = f"{stem}_reconstructed.pptx"
-
-    root = tk.Tk()
-    root.withdraw()
-    path = filedialog.asksaveasfilename(
-        title="Save output PPTX as",
-        initialfile=default_name,
-        defaultextension=".pptx",
-        filetypes=[("PowerPoint files", "*.pptx"), ("All files", "*.*")],
-    )
-    root.destroy()
-    return path or ""
-
-
-def main() -> None:
-    """
-    Parse arguments or open dialogs, validate inputs, and run the pipeline.
-
-    Argument modes:
-      - 0 args: both input and output selected via dialog boxes.
-      - 1 arg:  input from CLI, output from save-as dialog.
-      - 2 args: both from CLI — no dialogs opened.
-
-    Exits with code 0 on success or clean user cancellation (dialog dismissed).
-    Exits with code 1 on usage errors or missing input files.
-
-    Args:
-        None (reads sys.argv).
-
-    Returns:
-        None.
-    """
+def _run_headless(input_pptx: str, output_pptx: str) -> None:
+    """Run pipeline in headless (2-arg CLI) mode."""
     log_file = _setup_logging()
     log.info("Log file: %s", log_file)
-
-    argc = len(sys.argv) - 1  # exclude the module name
-
-    if argc == 0:
-        input_pptx = _pick_input_file()
-        if not input_pptx:
-            print("No input file selected.")
-            sys.exit(0)
-        output_pptx = _pick_output_file(input_pptx)
-        if not output_pptx:
-            print("No output location selected.")
-            sys.exit(0)
-
-    elif argc == 1:
-        input_pptx = sys.argv[1]
-        output_pptx = _pick_output_file(input_pptx)
-        if not output_pptx:
-            print("No output location selected.")
-            sys.exit(0)
-
-    elif argc == 2:
-        input_pptx, output_pptx = sys.argv[1], sys.argv[2]
-
-    else:
-        print("Usage: python -m slide_text_replacer [<input.pptx> [<output.pptx>]]")
-        sys.exit(1)
 
     if not Path(input_pptx).exists():
         print(f"Error: input file not found: {input_pptx}")
@@ -197,7 +71,213 @@ def main() -> None:
         sys.exit(1)
 
     config = load_config()
+    if config is None:
+        print("Error: config.toml missing or API keys not set.")
+        sys.exit(1)
     run_pipeline(input_pptx, output_pptx, config)
+
+
+def _run_gui() -> None:
+    """Launch the tkinter GUI application."""
+    import tkinter as tk
+    from tkinter import filedialog, messagebox
+
+    log_file = _setup_logging()
+    log.info("Log file: %s", log_file)
+
+    root = tk.Tk()
+    root.title("Slide Text Replacer")
+    root.resizable(False, False)
+
+    # --- First-run key dialog ---
+    if not has_valid_config():
+        _show_key_dialog(root)
+        # After key dialog, check again
+        if not has_valid_config():
+            root.destroy()
+            return
+
+    # Load config for defaults
+    config = load_config()
+    if config is None:
+        messagebox.showerror("Error", "Failed to load config after key setup.")
+        root.destroy()
+        return
+
+    # --- Main window ---
+    frame = tk.Frame(root, padx=20, pady=20)
+    frame.pack()
+
+    # Input file selection
+    input_var = tk.StringVar()
+    tk.Label(frame, text="Input PPTX:").grid(row=0, column=0, sticky="w")
+    input_entry = tk.Entry(frame, textvariable=input_var, width=50, state="readonly")
+    input_entry.grid(row=0, column=1, padx=5)
+
+    def browse_input():
+        path = filedialog.askopenfilename(
+            title="Select input PPTX",
+            filetypes=[("PowerPoint files", "*.pptx"), ("All files", "*.*")],
+        )
+        if path:
+            input_var.set(path)
+            # Auto-derive output path
+            stem = Path(path).stem
+            out = Path(path).parent / f"{stem}_reconstructed.pptx"
+            output_var.set(str(out))
+
+    tk.Button(frame, text="Browse...", command=browse_input).grid(row=0, column=2)
+
+    # Output path (auto-derived, shown read-only)
+    output_var = tk.StringVar()
+    tk.Label(frame, text="Output:").grid(row=1, column=0, sticky="w", pady=(5, 0))
+    tk.Entry(frame, textvariable=output_var, width=50, state="readonly").grid(
+        row=1, column=1, padx=5, pady=(5, 0)
+    )
+
+    # OCR Candidates spinbox
+    tk.Label(frame, text="OCR Candidates (1-10):").grid(
+        row=2, column=0, sticky="w", pady=(10, 0)
+    )
+    candidates_var = tk.IntVar(value=config.gemini_ocr_candidates)
+    candidates_spin = tk.Spinbox(
+        frame, from_=1, to=10, textvariable=candidates_var, width=5
+    )
+    candidates_spin.grid(row=2, column=1, sticky="w", padx=5, pady=(10, 0))
+
+    # Top-K spinbox
+    tk.Label(frame, text="Slides to generate (1-candidates):").grid(
+        row=3, column=0, sticky="w", pady=(5, 0)
+    )
+    topk_var = tk.IntVar(value=config.gemini_ocr_top_k)
+    topk_spin = tk.Spinbox(
+        frame, from_=1, to=10, textvariable=topk_var, width=5
+    )
+    topk_spin.grid(row=3, column=1, sticky="w", padx=5, pady=(5, 0))
+
+    # Status label
+    status_var = tk.StringVar(value="Idle")
+    status_label = tk.Label(frame, textvariable=status_var, fg="gray")
+    status_label.grid(row=5, column=0, columnspan=3, pady=(10, 0))
+
+    # Run button
+    def on_run():
+        inp = input_var.get()
+        out = output_var.get()
+        if not inp:
+            messagebox.showwarning("Warning", "Select an input file first.")
+            return
+        if not Path(inp).exists():
+            messagebox.showerror("Error", f"File not found: {inp}")
+            return
+
+        cands = min(max(candidates_var.get(), 1), 10)
+        topk = min(max(topk_var.get(), 1), cands)
+
+        # Save updated config with user's choices
+        cfg = load_config()
+        save_config(
+            gemini_key=cfg.gemini_api_key,
+            replicate_token=cfg.replicate_token,
+            ocr_candidates=cands,
+            ocr_top_k=topk,
+        )
+        # Reload with new params
+        cfg = load_config()
+
+        # Disable controls
+        run_btn.config(state="disabled")
+        candidates_spin.config(state="disabled")
+        topk_spin.config(state="disabled")
+        status_var.set("Processing...")
+        status_label.config(fg="blue")
+
+        def worker():
+            try:
+                run_pipeline(inp, out, cfg)
+                root.after(0, lambda: _on_done(None))
+            except Exception as e:
+                root.after(0, lambda: _on_done(e))
+
+        def _on_done(error):
+            run_btn.config(state="normal")
+            candidates_spin.config(state="normal")
+            topk_spin.config(state="normal")
+            if error:
+                status_var.set(f"Error: {error}")
+                status_label.config(fg="red")
+                log.error("Pipeline failed: %s", error, exc_info=True)
+            else:
+                status_var.set(f"Done! Output: {out}")
+                status_label.config(fg="green")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    run_btn = tk.Button(frame, text="Run", command=on_run, width=15)
+    run_btn.grid(row=4, column=0, columnspan=3, pady=(15, 0))
+
+    root.mainloop()
+
+
+def _show_key_dialog(root: "tk.Tk") -> None:
+    """Show a modal dialog for first-run API key entry."""
+    import tkinter as tk
+
+    dialog = tk.Toplevel(root)
+    dialog.title("First-Run Setup — Enter API Keys")
+    dialog.grab_set()
+    dialog.resizable(False, False)
+
+    frame = tk.Frame(dialog, padx=20, pady=20)
+    frame.pack()
+
+    tk.Label(frame, text="Gemini API Key:").grid(row=0, column=0, sticky="w")
+    gemini_entry = tk.Entry(frame, width=50)
+    gemini_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    tk.Label(frame, text="Replicate Token:").grid(row=1, column=0, sticky="w")
+    replicate_entry = tk.Entry(frame, width=50)
+    replicate_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    tk.Label(
+        frame,
+        text="Get keys at: aistudio.google.com/apikey & replicate.com/account/api-tokens",
+        fg="gray",
+    ).grid(row=2, column=0, columnspan=2, pady=(5, 10))
+
+    def on_save():
+        g = gemini_entry.get().strip()
+        r = replicate_entry.get().strip()
+        if not g or not r:
+            from tkinter import messagebox
+            messagebox.showwarning("Missing keys", "Both keys are required.", parent=dialog)
+            return
+        save_config(gemini_key=g, replicate_token=r, ocr_candidates=10, ocr_top_k=2)
+        dialog.destroy()
+
+    def on_cancel():
+        dialog.destroy()
+
+    btn_frame = tk.Frame(frame)
+    btn_frame.grid(row=3, column=0, columnspan=2)
+    tk.Button(btn_frame, text="Save", command=on_save, width=10).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Cancel", command=on_cancel, width=10).pack(side="left", padx=5)
+
+    dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+    root.wait_window(dialog)
+
+
+def main() -> None:
+    """Entry point: headless with 2 args, GUI otherwise."""
+    argc = len(sys.argv) - 1
+
+    if argc == 2:
+        _run_headless(sys.argv[1], sys.argv[2])
+    elif argc == 0:
+        _run_gui()
+    else:
+        print("Usage: python -m slide_text_replacer [<input.pptx> <output.pptx>]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

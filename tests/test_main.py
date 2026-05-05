@@ -1,8 +1,8 @@
 """
-Tests for __main__.py — CLI entry point and argument handling.
+Tests for __main__.py — CLI entry point and GUI launcher.
 
-Verifies I/O contracts documented in docs/modules/main.md.
-All tests are local — no API calls. tkinter dialogs bypassed via mocks.
+Verifies headless (2-arg) mode and argument validation.
+GUI tests are minimal (would require tkinter mocking).
 """
 
 import sys
@@ -28,7 +28,7 @@ def _mock_logging(tmp_path):
 
 def _create_dummy_pptx(tmp_path: Path, name: str = "input.pptx") -> Path:
     p = tmp_path / name
-    p.write_bytes(b"PK\x03\x04")  # minimal ZIP signature
+    p.write_bytes(b"PK\x03\x04")
     return p
 
 
@@ -64,15 +64,22 @@ def test_main_passes_config_to_pipeline(mock_config, mock_pipeline, tmp_path, mo
 
     main()
 
-    mock_config.assert_called_once()
     pipeline_config = mock_pipeline.call_args[0][2]
     assert pipeline_config is sentinel_config
 
 
 # ── main(): argument validation — error handling ─────────────────────────────
 
-def test_main_too_many_args_exits_1(monkeypatch):
-    """Input: 3+ args → Output: sys.exit(1)."""
+def test_main_one_arg_exits_1(monkeypatch):
+    """Input: 1 arg → Output: sys.exit(1) (no longer supported)."""
+    monkeypatch.setattr(sys, "argv", ["prog", "a.pptx"])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
+def test_main_three_args_exits_1(monkeypatch):
+    """Input: 3 args → Output: sys.exit(1)."""
     monkeypatch.setattr(sys, "argv", ["prog", "a.pptx", "b.pptx", "c.pptx"])
     with pytest.raises(SystemExit) as exc_info:
         main()
@@ -97,22 +104,11 @@ def test_main_non_pptx_exits_1(monkeypatch, tmp_path):
     assert exc_info.value.code == 1
 
 
-# ── main(): dialog cancellation — exit codes ─────────────────────────────────
-
-@patch("slide_text_replacer.__main__._pick_input_file", return_value="")
-def test_main_zero_args_cancelled_exits_0(mock_pick, monkeypatch):
-    """Input: 0 args, user cancels input dialog → Output: sys.exit(0)."""
-    monkeypatch.setattr(sys, "argv", ["prog"])
-    with pytest.raises(SystemExit) as exc_info:
-        main()
-    assert exc_info.value.code == 0
-
-
-@patch("slide_text_replacer.__main__._pick_output_file", return_value="")
-def test_main_one_arg_cancelled_output_exits_0(mock_pick, monkeypatch, tmp_path):
-    """Input: 1 arg, user cancels output dialog → Output: sys.exit(0)."""
+@patch("slide_text_replacer.__main__.load_config", return_value=None)
+def test_main_headless_no_config_exits_1(mock_cfg, monkeypatch, tmp_path):
+    """Input: 2 args but no config → Output: sys.exit(1)."""
     input_path = _create_dummy_pptx(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["prog", str(input_path)])
+    monkeypatch.setattr(sys, "argv", ["prog", str(input_path), "out.pptx"])
     with pytest.raises(SystemExit) as exc_info:
         main()
-    assert exc_info.value.code == 0
+    assert exc_info.value.code == 1
