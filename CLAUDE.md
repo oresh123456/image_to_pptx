@@ -154,6 +154,16 @@ Stages add fields in order: OCR writes `text`/`box_2d`/`font_size_px` → Enrich
 
 `config.toml` next to the package (gitignored). Env vars override: `GEMINI_API_KEY`, `REPLICATE_API_TOKEN`. See `docs/config.md` for template and all fields.
 
+### Current config state (branch: working-version-with-10-api-calls-and-selected-2)
+
+Config is split across two locations:
+- **`config.toml`** — API keys, Replicate settings, font palette, enrichment toggle
+- **Hardcoded in `ocr.py`** — `max_api_calls=10`, `selected_regions=2` (top-2 per call), OCR prompt, Gemini model name, timeout
+
+### Future plan: centralize config
+
+All tunable parameters (max_api_calls, selected_regions, model name, timeout) should move into `config.toml` under a `[gemini]` section. This keeps `ocr.py` free of magic numbers and lets the user tweak without code changes.
+
 ## Anti-patterns — do NOT do these
 
 - **Don't add new external services** — each one is a credential + failure mode. Google Vision, Mistral OCR, Anthropic Claude were all explicitly rejected.
