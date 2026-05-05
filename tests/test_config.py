@@ -40,7 +40,7 @@ def test_valid_font_families_exactly_five():
 def test_config_defaults():
     """Input: only required keys → Output: Config with documented defaults."""
     cfg = Config(gemini_api_key="k", replicate_token="t")
-    assert cfg.gemini_model == "gemini-2.5-flash"
+    assert cfg.gemini_model == "gemini-3.1-flash-image-preview"
     assert cfg.replicate_model == "allenhooo/lama"
     assert cfg.max_concurrent == 1
     assert cfg.mask_padding_px == 12

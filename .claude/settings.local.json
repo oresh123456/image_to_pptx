@@ -18,7 +18,9 @@
       "Bash(git push:*)",
       "WebFetch(domain:products.aspose.com)",
       "WebFetch(domain:gist.github.com)",
-      "WebFetch(domain:stackoverflow.com)"
+      "WebFetch(domain:stackoverflow.com)",
+      "WebSearch",
+      "Bash(git:*)"
     ],
     "defaultMode": "plan"
   }

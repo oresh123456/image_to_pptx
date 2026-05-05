@@ -12,7 +12,7 @@ Second Gemini call per slide. Enriches raw OCR regions with font family, weight,
 | `mime_type`       | `str`           | —                    | `"image/png"` or `"image/jpeg"`.   |
 | `regions`         | `list[Region]`  | —                    | OCR output from `ocr.run()`.       |
 | `api_key`         | `str`           | —                    | Google AI Studio API key.          |
-| `model`           | `str`           | `"gemini-2.5-flash"` | Gemini model name.                 |
+| `model`           | `str`           | `"gemini-3.1-flash-image-preview"` | Gemini model name.                 |
 | `thinking_budget` | `int`           | `1`                  | Thinking token budget (1 = minimal). |
 
 | Output | Type                    | Description |

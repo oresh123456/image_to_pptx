@@ -85,7 +85,7 @@ def test_process_slide_passes_config_params(mock_ocr, mock_enrich, mock_masking,
 
     ocr_args = mock_ocr.run.call_args
     assert ocr_args[0][2] == "k"              # api_key
-    assert ocr_args[0][3] == "gemini-2.5-flash"  # model
+    assert ocr_args[0][3] == "gemini-3.1-flash-image-preview"  # model
 
     mask_kwargs = mock_masking.build_mask.call_args
     assert mask_kwargs[1]["padding_px"] == 20

@@ -33,7 +33,7 @@ config.toml layout (see config.example.toml for the full template):
   replicate = ""  # required
 
   [behavior]
-  gemini_model    = "gemini-2.5-flash"
+  gemini_model    = "gemini-3.1-flash-image-preview"
   max_concurrent  = 1
   mask_padding_px = 12
   mask_blur_radius = 2
@@ -105,12 +105,13 @@ class Config:
 
     gemini_api_key: str
     replicate_token: str
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.1-flash-image-preview"
     replicate_model: str = "allenhooo/lama"
     max_concurrent: int = 1
     mask_padding_px: int = 12
     mask_blur_radius: float = 2.0
     thinking_budget: int = 0
+    ocr_candidates: int = 3
     output_suffix: str = "_reconstructed"
     font_px_to_pt: float = FONT_PX_TO_PT
     font_min_pt: float = FONT_MIN_PT
@@ -182,11 +183,12 @@ def _parse_raw(raw: dict, env_gemini: str, env_replicate: str) -> Config:
     return Config(
         gemini_api_key=gemini_key,
         replicate_token=replicate_token,
-        gemini_model=behavior.get("gemini_model", "gemini-2.5-flash"),
+        gemini_model=behavior.get("gemini_model", "gemini-3.1-flash-image-preview"),
         max_concurrent=int(behavior.get("max_concurrent", 1)),
         mask_padding_px=int(behavior.get("mask_padding_px", 12)),
         mask_blur_radius=float(behavior.get("mask_blur_radius", 2.0)),
         thinking_budget=int(behavior.get("thinking_budget", 0)),
+        ocr_candidates=int(behavior.get("ocr_candidates", 3)),
         output_suffix=output.get("suffix", "_reconstructed"),
     )
 

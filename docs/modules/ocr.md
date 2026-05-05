@@ -4,15 +4,16 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 
 ## Public functions
 
-### `run(image_bytes, mime_type, api_key, model, thinking_budget) -> list[Region]`
+### `run(image_bytes, mime_type, api_key, model, thinking_budget, candidates) -> list[Region]`
 
 | Input             | Type    | Default              | Description                     |
 |-------------------|---------|----------------------|---------------------------------|
 | `image_bytes`     | `bytes` | —                    | Raw slide image (PNG or JPEG).  |
 | `mime_type`       | `str`   | —                    | `"image/png"` or `"image/jpeg"`. |
 | `api_key`         | `str`   | —                    | Google AI Studio API key.       |
-| `model`           | `str`   | `"gemini-2.5-flash"` | Gemini model name.              |
+| `model`           | `str`   | `"gemini-3.1-flash-image-preview"` | Gemini model name.              |
 | `thinking_budget` | `int`   | `1`                  | Thinking token budget (1 = minimal). |
+| `candidates`      | `int`   | `3`                  | Parallel OCR calls; picks best (most regions). |
 
 | Output | Type            | Description |
 |--------|-----------------|-------------|
@@ -20,12 +21,14 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 
 | Raises | When |
 |--------|------|
-| *(never)* | All exceptions caught internally. Returns `[]` after 2 failed attempts. |
+| *(never)* | All exceptions caught internally. Returns `[]` if all candidates fail. |
 
-### Retry behavior
+### Best-of-N parallel strategy
 
-- 2 attempts via `retry_call(max_attempts=2, base_delay=1.0)`.
-- On `RetryExhausted`: logs error, returns `[]`.
+- Fires `candidates` parallel calls via inner ThreadPoolExecutor.
+- Picks the result with the most regions (more regions = more complete, no false positives observed).
+- If some candidates fail, still returns the best successful result.
+- If all candidates fail: logs error, returns `[]`.
 
 ### Output guarantees
 
@@ -47,4 +50,4 @@ Calls Gemini 2.5 Pro to detect all text regions in a slide image. First per-slid
 
 ## Dependencies
 
-`requests`, `retry` (retry_call, RetryExhausted), `schemas` (Region), stdlib `base64`, `json`, `logging`.
+`requests`, `schemas` (Region), stdlib `base64`, `json`, `logging`, `concurrent.futures`.

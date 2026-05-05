@@ -46,6 +46,7 @@ import base64
 import json
 import logging
 import re
+from pathlib import Path
 
 import requests
 
@@ -55,6 +56,7 @@ from slide_text_replacer.schemas import Region, EnrichedRegion
 
 log = logging.getLogger(__name__)
 
+_LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 _DEFAULT_FONT_FAMILY = "Heebo"
@@ -62,6 +64,57 @@ _DEFAULT_FONT_WEIGHT = "regular"
 _DEFAULT_COLOR       = "#000000"
 
 _COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _extract_json_array(raw: str) -> list:
+    """
+    Extract and parse a JSON array from potentially messy model output.
+
+    Handles markdown fences, leading/trailing prose, trailing commas,
+    and missing commas between adjacent objects.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")[1:]
+        while lines and lines[-1].strip().startswith("```"):
+            lines.pop()
+        text = "\n".join(lines).strip()
+
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(f"No JSON array found in response ({len(raw)} chars)")
+    text = text[start:end + 1]
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    fixed = re.sub(r",\s*([}\]])", r"\1", text)
+    fixed = re.sub(r"}\s*{", "},{", fixed)
+
+    try:
+        parsed = json.loads(fixed)
+        if isinstance(parsed, list):
+            log.debug("JSON parsed after fixup.")
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    # Dump raw response for debugging
+    try:
+        _LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
+        dump_path = _LOGS_DIR / f"enrichment_raw_{datetime.now().strftime('%H%M%S')}.txt"
+        dump_path.write_text(raw, encoding="utf-8")
+        log.warning("Dumped unparseable enrichment response to %s", dump_path)
+    except Exception:
+        pass
+
+    raise ValueError(f"Cannot parse JSON array from response ({len(raw)} chars)")
 
 # ── Prompt template v1.0 ──────────────────────────────────────────────────────
 # {regions_json} is injected at call time. Do NOT change without updating
@@ -161,6 +214,7 @@ def _call_gemini(
             ]
         }],
         "generationConfig": {
+            "maxOutputTokens": 5000,
             "thinkingConfig": {"thinkingBudget": thinking_budget},
         },
     }
@@ -175,8 +229,24 @@ def _call_gemini(
         raise RuntimeError(
             f"Gemini returned no candidates. Response: {json.dumps(data)[:400]}"
         )
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text_part = next((p["text"] for p in parts if "text" in p), None)
+    candidate = candidates[0]
+    finish_reason = candidate.get("finishReason", "UNKNOWN")
+    usage = data.get("usageMetadata", {})
+    output_tokens = usage.get("candidatesTokenCount", "?")
+    log.info("Enrichment output tokens: %s, finishReason: %s", output_tokens, finish_reason)
+    if finish_reason == "MAX_TOKENS":
+        raise RuntimeError(
+            f"Gemini enrichment truncated (finishReason=MAX_TOKENS, "
+            f"outputTokens={output_tokens}). Increase maxOutputTokens."
+        )
+    if finish_reason not in ("STOP", "UNKNOWN"):
+        raise RuntimeError(
+            f"Gemini enrichment stopped unexpectedly (finishReason={finish_reason}, "
+            f"outputTokens={output_tokens})."
+        )
+    parts = candidate.get("content", {}).get("parts", [])
+    log.debug("Enrichment parts structure: %s", json.dumps([{k: v if k != "text" else v[:80] for k, v in p.items()} for p in parts]))
+    text_part = next((p["text"] for p in parts if "text" in p and not p.get("thought")), None)
     if text_part is None:
         raise RuntimeError(
             f"No text part in enrichment candidate. Response: {json.dumps(data)[:400]}"
@@ -215,18 +285,7 @@ def _parse_enriched(
         ValueError:          If the response is not a JSON list at all.
         json.JSONDecodeError: If the text is not valid JSON after fence removal.
     """
-    text = raw_json.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")[1:]
-        while lines and lines[-1].strip().startswith("```"):
-            lines.pop()
-        text = "\n".join(lines).strip()
-
-    parsed = json.loads(text)
-    if not isinstance(parsed, list):
-        raise ValueError(
-            f"Expected a JSON array from enrichment, got {type(parsed).__name__}"
-        )
+    parsed = _extract_json_array(raw_json)
 
     result: list[EnrichedRegion] = []
     for i, fallback in enumerate(fallback_regions):
@@ -300,7 +359,7 @@ def run(
     mime_type: str,
     regions: list[Region],
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.1-flash-image-preview",
     thinking_budget: int = 1,
 ) -> list[EnrichedRegion]:
     """

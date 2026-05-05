@@ -23,11 +23,12 @@ gemini   = ""   # paste your Google AI Studio key
 replicate = ""  # paste your Replicate token
 
 [behavior]
-gemini_model    = "gemini-2.5-flash"
+gemini_model    = "gemini-3.1-flash-image-preview"
 max_concurrent  = 1    # raise to 5 once your Replicate account has > $5 credit
 mask_padding_px = 12   # pixels of padding around each text bbox in the inpaint mask
 mask_blur_radius = 2   # Gaussian blur radius applied to the mask (0 = no blur)
 thinking_budget = 1    # Gemini thinking token budget (1 = minimal thinking)
+ocr_candidates  = 3    # parallel OCR calls per slide, pick result with most regions
 
 [output]
 suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx
@@ -39,11 +40,12 @@ suffix = "_reconstructed"  # output filename: <input_stem><suffix>.pptx
 |---------|-------|------|---------|-------|
 | `api_keys` | `gemini` | str | *required* | env `GEMINI_API_KEY` overrides |
 | `api_keys` | `replicate` | str | *required* | env `REPLICATE_API_TOKEN` overrides |
-| `behavior` | `gemini_model` | str | `"gemini-2.5-flash"` | |
+| `behavior` | `gemini_model` | str | `"gemini-3.1-flash-image-preview"` | |
 | `behavior` | `max_concurrent` | int | `1` | Replicate free-tier: keep at 1 |
 | `behavior` | `mask_padding_px` | int | `12` | |
 | `behavior` | `mask_blur_radius` | float | `2.0` | `0` = hard edges |
 | `behavior` | `thinking_budget` | int | `1` | Gemini thinking tokens; `1` = minimal thinking |
+| `behavior` | `ocr_candidates` | int | `3` | Parallel OCR calls per slide; picks result with most regions |
 | `output` | `suffix` | str | `"_reconstructed"` | |
 
 ## Hard-coded values (not configurable)

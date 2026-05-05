@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from slide_text_replacer.ocr import _parse_regions, run
+from slide_text_replacer.ocr import _parse_regions, _extract_json_array, run
 from slide_text_replacer.schemas import Region
 
 
@@ -124,21 +124,79 @@ def test_run_success_returns_regions(mock_post, sample_image_bytes):
     ])
     mock_post.return_value = _make_gemini_response(regions_json)
 
-    result = run(sample_image_bytes, "image/png", "fake-key", "gemini-2.5-pro")
+    result = run(sample_image_bytes, "image/png", "fake-key", "gemini-2.5-pro", candidates=1)
     assert len(result) == 1
     assert result[0].text == "title"
     assert mock_post.call_count == 1
 
 
+# ── run(): best-of-N candidate selection ─────────────────────────────────────
+
+@patch("slide_text_replacer.ocr.requests.post")
+def test_run_picks_candidate_with_most_regions(mock_post, sample_image_bytes):
+    """3 candidates return different region counts → picks the one with most."""
+    resp_1 = _make_gemini_response(json.dumps([
+        {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
+    ]))
+    resp_3 = _make_gemini_response(json.dumps([
+        {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
+        {"text": "b", "box_2d": [200, 200, 300, 300], "font_size_px": 16},
+        {"text": "c", "box_2d": [400, 400, 500, 500], "font_size_px": 16},
+    ]))
+    resp_2 = _make_gemini_response(json.dumps([
+        {"text": "a", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
+        {"text": "b", "box_2d": [200, 200, 300, 300], "font_size_px": 16},
+    ]))
+    mock_post.side_effect = [resp_1, resp_3, resp_2]
+
+    result = run(sample_image_bytes, "image/png", "fake-key", candidates=3)
+    assert len(result) == 3
+    assert mock_post.call_count == 3
+
+
+@patch("slide_text_replacer.ocr.requests.post")
+def test_run_partial_failures_still_returns_best(mock_post, sample_image_bytes):
+    """2/3 candidates fail → still returns the successful one."""
+    good_resp = _make_gemini_response(json.dumps([
+        {"text": "survivor", "box_2d": [10, 10, 100, 100], "font_size_px": 16},
+    ]))
+    mock_post.side_effect = [
+        RuntimeError("fail 1"),
+        RuntimeError("fail 2"),
+        good_resp,
+    ]
+
+    result = run(sample_image_bytes, "image/png", "fake-key", candidates=3)
+    assert len(result) == 1
+    assert result[0].text == "survivor"
+
+
 # ── run(): error handling ────────────────────────────────────────────────────
 # All failures → empty list (never raises to caller).
 
-@patch("slide_text_replacer.retry.time.sleep")
 @patch("slide_text_replacer.ocr.requests.post")
-def test_run_returns_empty_on_exhausted_retries(mock_post, mock_sleep, sample_image_bytes):
-    """Input: both attempts fail → Output: empty list (graceful degradation)."""
+def test_run_returns_empty_on_all_candidates_failed(mock_post, sample_image_bytes):
+    """Input: all candidates fail → Output: empty list (graceful degradation)."""
     mock_post.side_effect = RuntimeError("network error")
 
-    result = run(sample_image_bytes, "image/png", "fake-key")
+    result = run(sample_image_bytes, "image/png", "fake-key", candidates=3)
     assert result == []
-    assert mock_post.call_count == 2
+    assert mock_post.call_count == 3
+
+
+# ── json-repair fallback tests ──────────────────────────────────────────────
+
+def test_extract_json_array_json_repair_fixes_single_quotes():
+    """json-repair catches single-quoted JSON that regex doesn't fix."""
+    raw = "[{'text': 'hello', 'box_2d': [10, 20, 100, 500], 'font_size_px': 24}]"
+    result = _extract_json_array(raw)
+    assert len(result) == 1
+    assert result[0]["text"] == "hello"
+
+
+def test_extract_json_array_json_repair_fixes_unquoted_keys():
+    """json-repair catches unquoted keys that regex doesn't fix."""
+    raw = '[{text: "שלום", box_2d: [10, 20, 100, 500], font_size_px: 24}]'
+    result = _extract_json_array(raw)
+    assert len(result) == 1
+    assert result[0]["text"] == "שלום"

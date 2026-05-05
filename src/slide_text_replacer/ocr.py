@@ -34,13 +34,18 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
+from pathlib import Path
 
 import requests
+from json_repair import repair_json
 
-from slide_text_replacer.retry import retry_call, RetryExhausted
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from slide_text_replacer.schemas import Region
 
 log = logging.getLogger(__name__)
+_LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
 
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
@@ -116,6 +121,7 @@ def _call_gemini(
             ]
         }],
         "generationConfig": {
+            "maxOutputTokens": 5000,
             "thinkingConfig": {"thinkingBudget": thinking_budget},
         },
     }
@@ -130,14 +136,110 @@ def _call_gemini(
         raise RuntimeError(
             f"Gemini returned no candidates. Response: {json.dumps(data)[:400]}"
         )
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text_part = next((p["text"] for p in parts if "text" in p), None)
+    candidate = candidates[0]
+    finish_reason = candidate.get("finishReason", "UNKNOWN")
+    usage = data.get("usageMetadata", {})
+    output_tokens = usage.get("candidatesTokenCount", "?")
+    log.info("OCR output tokens: %s, finishReason: %s", output_tokens, finish_reason)
+    if finish_reason == "MAX_TOKENS":
+        raise RuntimeError(
+            f"Gemini OCR truncated (finishReason=MAX_TOKENS, "
+            f"outputTokens={output_tokens}). Increase maxOutputTokens."
+        )
+    if finish_reason not in ("STOP", "UNKNOWN"):
+        raise RuntimeError(
+            f"Gemini OCR stopped unexpectedly (finishReason={finish_reason}, "
+            f"outputTokens={output_tokens})."
+        )
+    parts = candidate.get("content", {}).get("parts", [])
+    text_part = next((p["text"] for p in parts if "text" in p and not p.get("thought")), None)
     if text_part is None:
         raise RuntimeError(
             f"No text part in Gemini candidate. Response: {json.dumps(data)[:400]}"
         )
     log.debug("OCR raw response length: %d chars", len(text_part))
     return text_part
+
+
+def _extract_json_array(raw: str) -> list:
+    """
+    Extract and parse a JSON array from potentially messy model output.
+
+    Handles markdown fences, leading/trailing prose, trailing commas,
+    and missing commas between adjacent objects.
+
+    Args:
+        raw: Raw text returned by Gemini.
+
+    Returns:
+        Parsed list.
+
+    Raises:
+        ValueError: If no JSON array can be extracted.
+    """
+    text = raw.strip()
+    # Strip markdown fences.
+    if text.startswith("```"):
+        lines = text.split("\n")[1:]
+        while lines and lines[-1].strip().startswith("```"):
+            lines.pop()
+        text = "\n".join(lines).strip()
+
+    # Isolate the outermost [ … ] to discard leading/trailing prose.
+    start = text.find("[")
+    end = text.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        raise ValueError(f"No JSON array found in response ({len(raw)} chars)")
+    text = text[start:end + 1]
+
+    # First attempt: parse as-is.
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    # Fixup: remove trailing commas before ] or }, add missing commas
+    # between }{ or }  {.
+    fixed = re.sub(r",\s*([}\]])", r"\1", text)   # trailing commas
+    fixed = re.sub(r"}\s*{", "},{", fixed)          # missing commas between objects
+    # Fixup: remove hallucinated "label": prefix before real keys
+    fixed = re.sub(r'"label":\s*"(font_size_px)"', r'"\1"', fixed)
+    # Fixup: add missing { before "box_2d" when preceded by , at array level
+    fixed = re.sub(r',\s*"box_2d"', ', {"box_2d"', fixed)
+    # Fixup: remove stray quotes inside numeric arrays [N, N, N, N"]
+    fixed = re.sub(r'(\d)"(\s*[,\]])', r'\1\2', fixed)
+
+    try:
+        parsed = json.loads(fixed)
+        if isinstance(parsed, list):
+            log.debug("JSON parsed after fixup.")
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    # Phase 4: json-repair catch-all for unknown malformations
+    try:
+        repaired = repair_json(fixed, return_objects=False)
+        parsed = json.loads(repaired)
+        if isinstance(parsed, list):
+            log.debug("JSON parsed after json-repair.")
+            return parsed
+    except (json.JSONDecodeError, Exception):
+        pass
+
+    # Dump raw response for debugging
+    try:
+        _LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime
+        dump_path = _LOGS_DIR / f"ocr_raw_{datetime.now().strftime('%H%M%S')}.txt"
+        dump_path.write_text(raw, encoding="utf-8")
+        log.warning("Dumped unparseable OCR response to %s", dump_path)
+    except Exception:
+        pass
+
+    raise ValueError(f"Cannot parse JSON array from response ({len(raw)} chars)")
 
 
 def _parse_regions(raw_json: str) -> list[Region]:
@@ -159,24 +261,19 @@ def _parse_regions(raw_json: str) -> list[Region]:
         ValueError: If the response cannot be parsed as a JSON list at all.
         json.JSONDecodeError: If the text is not valid JSON after fence removal.
     """
-    text = raw_json.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")[1:]
-        while lines and lines[-1].strip().startswith("```"):
-            lines.pop()
-        text = "\n".join(lines).strip()
-
-    parsed = json.loads(text)
+    parsed = _extract_json_array(raw_json)
     if not isinstance(parsed, list):
         raise ValueError(
             f"Expected a JSON array from Gemini, got {type(parsed).__name__}"
         )
 
     regions: list[Region] = []
+    skipped = 0
     for item in parsed:
         text_str = (item.get("text") or "").strip()
         box = item.get("box_2d")
         if not text_str or not box or len(box) != 4:
+            skipped += 1
             continue
         font_px = item.get("font_size_px")
         if not isinstance(font_px, (int, float)) or font_px <= 0:
@@ -186,6 +283,10 @@ def _parse_regions(raw_json: str) -> list[Region]:
             box_2d=tuple(max(0, min(1000, int(c))) for c in box),
             font_size_px=float(font_px),
         ))
+    log.info(
+        "OCR parse: %d raw items → %d regions (%d skipped)",
+        len(parsed), len(regions), skipped,
+    )
     return regions
 
 
@@ -193,39 +294,52 @@ def run(
     image_bytes: bytes,
     mime_type: str,
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.1-flash-image-preview",
     thinking_budget: int = 1,
+    candidates: int = 3,
 ) -> list[Region]:
     """
-    Detect all text regions in a slide image using Gemini 2.5 Pro.
+    Detect all text regions in a slide image using best-of-N parallel OCR.
 
-    Makes up to two attempts. On the first failure logs a warning and retries.
-    On the second failure logs an error and returns an empty list — the slide
-    proceeds through the rest of the pipeline with no text detected, resulting
-    in an inpainted background with no text overlay.
+    Fires N parallel calls to Gemini and picks the result with the most
+    regions (no false positives observed, so more = more complete).
 
     Args:
         image_bytes: Raw bytes of the slide image (PNG or JPEG).
         mime_type:   MIME type of the image, e.g. "image/png".
         api_key:     Google AI Studio API key.
-        model:       Gemini model name. Defaults to "gemini-2.5-pro".
+        model:       Gemini model name.
+        thinking_budget: Gemini thinking token budget.
+        candidates:  Number of parallel OCR calls to fire (picks best).
 
     Returns:
         List of Region objects with normalized 0-1000 bounding boxes.
-        Returns an empty list if OCR failed or detected no text.
+        Returns an empty list if all candidates failed or returned 0 regions.
     """
-    def _attempt() -> list[Region]:
+    def _single_attempt() -> list[Region]:
         raw = _call_gemini(api_key, model, image_bytes, mime_type, OCR_PROMPT, thinking_budget=thinking_budget)
-        regions = _parse_regions(raw)
-        log.debug("OCR found %d region(s).", len(regions))
-        return regions
+        return _parse_regions(raw)
 
-    try:
-        return retry_call(_attempt, max_attempts=2, base_delay=1.0, context="OCR")
-    except RetryExhausted as exc:
-        log.error(
-            "OCR failed after %d attempts (%s) — slide will have no text overlay.",
-            exc.attempts,
-            exc.last_error,
-        )
+    results: list[list[Region]] = []
+    with ThreadPoolExecutor(max_workers=candidates) as pool:
+        futures = [pool.submit(_single_attempt) for _ in range(candidates)]
+        for fut in as_completed(futures):
+            try:
+                regions = fut.result()
+                results.append(regions)
+            except Exception as exc:
+                log.warning("OCR candidate failed: %s", exc)
+
+    if not results:
+        log.error("All %d OCR candidates failed — no text overlay.", candidates)
         return []
+
+    best = max(results, key=len)
+    log.info(
+        "OCR best-of-%d: picked %d regions (candidates returned: %s)",
+        candidates, len(best), [len(r) for r in results],
+    )
+
+    if not best:
+        log.warning("All %d OCR candidates returned 0 regions.", candidates)
+    return best

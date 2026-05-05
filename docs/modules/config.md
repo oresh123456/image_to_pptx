@@ -8,7 +8,7 @@ Loads and validates runtime configuration from `config.toml` and environment var
 |--------------------|---------|----------------------|-------------------------------------|
 | `gemini_api_key`   | `str`   | *required*           | `GEMINI_API_KEY` env or `[api_keys] gemini` |
 | `replicate_token`  | `str`   | *required*           | `REPLICATE_API_TOKEN` env or `[api_keys] replicate` |
-| `gemini_model`     | `str`   | `"gemini-2.5-flash"`   | `[behavior] gemini_model`           |
+| `gemini_model`     | `str`   | `"gemini-3.1-flash-image-preview"`   | `[behavior] gemini_model`           |
 | `replicate_model`  | `str`   | `"allenhooo/lama"`   | hard-coded                          |
 | `max_concurrent`   | `int`   | `1`                  | `[behavior] max_concurrent`         |
 | `mask_padding_px`  | `int`   | `12`                 | `[behavior] mask_padding_px`        |
