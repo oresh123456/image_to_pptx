@@ -53,10 +53,12 @@ When the user instructs you to read a module for context, read the module source
 ```
 image_to_pptx/                 (git root)
 ├── CLAUDE.md
+├── README.md                  # full explanation of distribution system
 ├── pyproject.toml
+├── icon.ico                   # app icon (exe + installer)
 ├── docs/config.md             # config template + field reference
 ├── src/slide_text_replacer/   # main package (13 modules, ~2200 LOC)
-│   ├── __main__.py            # CLI entry point + tkinter file dialogs
+│   ├── __main__.py            # GUI entry point + tkinter file dialogs
 │   ├── config.py              # config.toml loading + env var overrides
 │   ├── schemas.py             # frozen dataclasses: Region, EnrichedRegion, SlideData
 │   ├── pipeline.py            # orchestration with ThreadPoolExecutor
@@ -68,6 +70,13 @@ image_to_pptx/                 (git root)
 │   ├── inpainting.py          # Replicate LaMa API client
 │   ├── reconstruction.py      # clean images + text overlays → output PPTX
 │   └── pptx_helpers.py        # XML helpers for <a:cs> Hebrew font + RTL
+├── installer/
+│   ├── build.bat              # one-click build: PyInstaller → Inno Setup
+│   ├── slide_text_replacer.spec  # PyInstaller recipe (onedir, hidden imports)
+│   ├── setup.iss              # Inno Setup script (shortcuts, context menu, uninstall)
+│   ├── config.toml.template   # config with API key placeholders for build
+│   └── assets/
+│       └── banner.bmp         # installer wizard banner image
 ├── tests/                     # 113 unit + 8 integration tests
 │   ├── conftest.py            # shared fixtures (unit + integration)
 │   ├── README.md              # how to run all test types
@@ -154,15 +163,15 @@ Stages add fields in order: OCR writes `text`/`box_2d`/`font_size_px` → Enrich
 
 `config.toml` next to the package (gitignored). Env vars override: `GEMINI_API_KEY`, `REPLICATE_API_TOKEN`. See `docs/config.md` for template and all fields.
 
-### Current config state (branch: working-version-with-10-api-calls-and-selected-2)
+### Current config state
 
-Config is split across two locations:
-- **`config.toml`** — API keys, Replicate settings, font palette, enrichment toggle
-- **Hardcoded in `ocr.py`** — `max_api_calls=10`, `selected_regions=2` (top-2 per call), OCR prompt, Gemini model name, timeout
+All tunable parameters are centralized in `config.toml` (under `[gemini]`, `[replicate]`, `[masking]`, `[output]` sections). No hardcoded magic numbers in module code. `sys.frozen` guards live inside function bodies only (`_find_config_file()`, `_config_path()`, `_setup_logging()`) — not at module level.
 
-### Future plan: centralize config
+## Installer / distribution
 
-All tunable parameters (max_api_calls, selected_regions, model name, timeout) should move into `config.toml` under a `[gemini]` section. This keeps `ocr.py` free of magic numbers and lets the user tweak without code changes.
+Full explanation in `README.md`. Build chain: `installer/build.bat` → PyInstaller (onedir) → Inno Setup → Windows installer `.exe`. Key files: `installer/slide_text_replacer.spec` (PyInstaller recipe), `installer/setup.iss` (Inno Setup script), `installer/config.toml.template` (API key placeholders).
+
+`sys.frozen` guards ensure paths resolve correctly in both dev and installed modes. All guards are inside function bodies (not module-level) so modules stay importable in tests.
 
 ## Anti-patterns — do NOT do these
 

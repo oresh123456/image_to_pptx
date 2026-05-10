@@ -141,7 +141,11 @@ def _find_config_file() -> Path | None:
     Returns:
         Path to the config.toml file, or None if not found anywhere.
     """
-    for path in _CONFIG_SEARCH_PATHS:
+    import sys
+    paths = list(_CONFIG_SEARCH_PATHS)
+    if getattr(sys, "frozen", False):
+        paths.insert(0, Path(sys.executable).parent / "config.toml")
+    for path in paths:
         if path.exists():
             return path
     return None
@@ -213,7 +217,10 @@ def _parse_raw(raw: dict, env_gemini: str, env_replicate: str) -> Config:
 
 
 def _config_path() -> Path:
-    """Return the canonical config.toml path (project root)."""
+    """Return the canonical config.toml path (exe dir when frozen, else project root)."""
+    import sys
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "config.toml"
     return Path(__file__).resolve().parents[2] / "config.toml"
 
 

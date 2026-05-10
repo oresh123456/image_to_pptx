@@ -1,0 +1,20 @@
+[api_keys]
+gemini    = "__GEMINI_API_KEY__"
+replicate = "__REPLICATE_API_TOKEN__"
+
+[gemini]
+model           = "gemini-3.1-flash-image-preview"
+thinking_budget = 1
+ocr_candidates  = 10
+ocr_top_k       = 2
+timeout         = 300
+
+[replicate]
+max_concurrent = 1
+
+[masking]
+padding_px  = 12
+blur_radius = 2
+
+[output]
+suffix = "_reconstructed"

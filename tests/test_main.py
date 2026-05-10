@@ -70,9 +70,19 @@ def test_main_passes_config_to_pipeline(mock_config, mock_pipeline, tmp_path, mo
 
 # ── main(): argument validation — error handling ─────────────────────────────
 
-def test_main_one_arg_exits_1(monkeypatch):
-    """Input: 1 arg → Output: sys.exit(1) (no longer supported)."""
+def test_main_one_arg_nonexistent_exits_1(monkeypatch):
+    """Input: 1 arg with nonexistent file → sys.exit(1)."""
     monkeypatch.setattr(sys, "argv", ["prog", "a.pptx"])
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+    assert exc_info.value.code == 1
+
+
+def test_main_one_arg_non_pptx_exits_1(monkeypatch, tmp_path):
+    """Input: 1 arg with non-.pptx file → sys.exit(1)."""
+    txt = tmp_path / "file.txt"
+    txt.write_text("x")
+    monkeypatch.setattr(sys, "argv", ["prog", str(txt)])
     with pytest.raises(SystemExit) as exc_info:
         main()
     assert exc_info.value.code == 1

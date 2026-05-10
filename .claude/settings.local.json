@@ -21,7 +21,8 @@
       "WebFetch(domain:stackoverflow.com)",
       "WebSearch",
       "Bash(git:*)",
-      "Bash(./venv/Scripts/pip install:*)"
+      "Bash(./venv/Scripts/pip install:*)",
+      "Bash(venv/Scripts/python.exe:*)"
     ],
     "defaultMode": "plan"
   }

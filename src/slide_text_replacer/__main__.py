@@ -31,14 +31,15 @@ from slide_text_replacer.pipeline import run_pipeline
 
 log = logging.getLogger(__name__)
 
-_LOGS_DIR = Path(__file__).resolve().parents[2] / "logs"
-
-
 def _setup_logging() -> Path:
     """Configure logging with console (INFO) and per-run file (DEBUG) handlers."""
-    _LOGS_DIR.mkdir(exist_ok=True)
+    if getattr(sys, "frozen", False):
+        logs_dir = Path(sys.executable).parent / "logs"
+    else:
+        logs_dir = Path(__file__).resolve().parents[2] / "logs"
+    logs_dir.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    log_file = _LOGS_DIR / f"{timestamp}.log"
+    log_file = logs_dir / f"{timestamp}.log"
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -77,8 +78,12 @@ def _run_headless(input_pptx: str, output_pptx: str) -> None:
     run_pipeline(input_pptx, output_pptx, config)
 
 
-def _run_gui() -> None:
-    """Launch the tkinter GUI application."""
+def _run_gui(input_path: str | None = None) -> None:
+    """Launch the tkinter GUI application.
+
+    Args:
+        input_path: Optional pre-filled input .pptx path (from 1-arg mode).
+    """
     import tkinter as tk
     from tkinter import filedialog, messagebox
 
@@ -108,8 +113,17 @@ def _run_gui() -> None:
     frame = tk.Frame(root, padx=20, pady=20)
     frame.pack()
 
-    # Input file selection
+    # Input / output variables
     input_var = tk.StringVar()
+    output_var = tk.StringVar()
+
+    # Pre-fill if provided (1-arg / context-menu mode)
+    if input_path:
+        input_var.set(input_path)
+        stem = Path(input_path).stem
+        output_var.set(str(Path(input_path).parent / f"{stem}_reconstructed.pptx"))
+
+    # Input file selection
     tk.Label(frame, text="Input PPTX:").grid(row=0, column=0, sticky="w")
     input_entry = tk.Entry(frame, textvariable=input_var, width=50, state="readonly")
     input_entry.grid(row=0, column=1, padx=5)
@@ -121,7 +135,6 @@ def _run_gui() -> None:
         )
         if path:
             input_var.set(path)
-            # Auto-derive output path
             stem = Path(path).stem
             out = Path(path).parent / f"{stem}_reconstructed.pptx"
             output_var.set(str(out))
@@ -129,7 +142,6 @@ def _run_gui() -> None:
     tk.Button(frame, text="Browse...", command=browse_input).grid(row=0, column=2)
 
     # Output path (auto-derived, shown read-only)
-    output_var = tk.StringVar()
     tk.Label(frame, text="Output:").grid(row=1, column=0, sticky="w", pady=(5, 0))
     tk.Entry(frame, textvariable=output_var, width=50, state="readonly").grid(
         row=1, column=1, padx=5, pady=(5, 0)
@@ -268,15 +280,24 @@ def _show_key_dialog(root: "tk.Tk") -> None:
 
 
 def main() -> None:
-    """Entry point: headless with 2 args, GUI otherwise."""
+    """Entry point: headless with 2 args, 1-arg opens GUI pre-filled, 0-arg GUI."""
     argc = len(sys.argv) - 1
 
     if argc == 2:
         _run_headless(sys.argv[1], sys.argv[2])
+    elif argc == 1:
+        path = sys.argv[1]
+        if not path.lower().endswith(".pptx"):
+            print("Error: input must be a .pptx file.")
+            sys.exit(1)
+        if not Path(path).exists():
+            print(f"Error: file not found: {path}")
+            sys.exit(1)
+        _run_gui(input_path=path)
     elif argc == 0:
         _run_gui()
     else:
-        print("Usage: python -m slide_text_replacer [<input.pptx> <output.pptx>]")
+        print("Usage: python -m slide_text_replacer [<input.pptx> [<output.pptx>]]")
         sys.exit(1)
 
 
