@@ -192,11 +192,7 @@ Full explanation in `README.md`. Build chain: `installer/build.bat` → PyInstal
 
 ## TODO — remaining work
 
-### Must do before production use
-- **Test prompts on real slides** — OCR and enrichment prompts are v1.0 and have not been validated on actual NotebookLM Hebrew slides. Run on 3+ representative slides with mixed Hebrew/English content. Verify: Hebrew word spacing preserved, font family classification accuracy, color detection accuracy, bounding box precision.
-
 ### Nice-to-have improvements
-- **Add dev dependencies to pyproject.toml** — add `[project.optional-dependencies] dev = ["pytest>=7.4"]` so developers know what to install for testing
 - **Pixel-sampling color fallback** — when enrichment returns an invalid color, sample the actual pixel color from the image instead of defaulting to #000000
 - **Config path robustness** — `config.py:76-79` uses `Path(__file__).resolve().parents[2]` which works but is fragile if package structure changes
 - **win32com-based extraction** — use PowerPoint's `Slide.Export()` via `win32com.client` to rasterize any slide, making the tool work with arbitrary PPTX files (not just NotebookLM image-only exports). Windows+PowerPoint only. Details in `docs/modules/extraction.md`.
