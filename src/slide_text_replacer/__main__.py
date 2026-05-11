@@ -96,13 +96,10 @@ def _run_gui(input_path: str | None = None) -> None:
 
     # --- First-run key dialog ---
     if not has_valid_config():
-        root.withdraw()
         _show_key_dialog(root)
-        # After key dialog, check again
         if not has_valid_config():
             root.destroy()
             return
-        root.deiconify()
 
     # Load config for defaults
     config = load_config()
@@ -234,15 +231,12 @@ def _run_gui(input_path: str | None = None) -> None:
 
 
 def _show_key_dialog(root: "tk.Tk") -> None:
-    """Show a modal dialog for first-run API key entry."""
+    """Show first-run API key entry using root window directly (no Toplevel)."""
     import tkinter as tk
 
-    dialog = tk.Toplevel(root)
-    dialog.title("First-Run Setup — Enter API Keys")
-    dialog.grab_set()
-    dialog.resizable(False, False)
+    root.title("First-Run Setup — Enter API Keys")
 
-    frame = tk.Frame(dialog, padx=20, pady=20)
+    frame = tk.Frame(root, padx=20, pady=20)
     frame.pack()
 
     tk.Label(frame, text="Gemini API Key:").grid(row=0, column=0, sticky="w")
@@ -259,26 +253,33 @@ def _show_key_dialog(root: "tk.Tk") -> None:
         fg="gray",
     ).grid(row=2, column=0, columnspan=2, pady=(5, 10))
 
+    done = tk.BooleanVar(value=False)
+
     def on_save():
         g = gemini_entry.get().strip()
         r = replicate_entry.get().strip()
         if not g or not r:
             from tkinter import messagebox
-            messagebox.showwarning("Missing keys", "Both keys are required.", parent=dialog)
+            messagebox.showwarning("Missing keys", "Both keys are required.", parent=root)
             return
         save_config(gemini_key=g, replicate_token=r, ocr_candidates=10, ocr_top_k=2)
-        dialog.destroy()
+        done.set(True)
 
     def on_cancel():
-        dialog.destroy()
+        done.set(True)
 
     btn_frame = tk.Frame(frame)
     btn_frame.grid(row=3, column=0, columnspan=2)
     tk.Button(btn_frame, text="Save", command=on_save, width=10).pack(side="left", padx=5)
     tk.Button(btn_frame, text="Cancel", command=on_cancel, width=10).pack(side="left", padx=5)
 
-    dialog.protocol("WM_DELETE_WINDOW", on_cancel)
-    root.wait_window(dialog)
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+    gemini_entry.focus_set()
+    root.wait_variable(done)
+
+    # Clear key dialog widgets, reset title for main GUI
+    frame.destroy()
+    root.title("Slide Text Replacer")
 
 
 def main() -> None:
