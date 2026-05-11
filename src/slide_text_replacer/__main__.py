@@ -96,11 +96,13 @@ def _run_gui(input_path: str | None = None) -> None:
 
     # --- First-run key dialog ---
     if not has_valid_config():
+        root.withdraw()
         _show_key_dialog(root)
         # After key dialog, check again
         if not has_valid_config():
             root.destroy()
             return
+        root.deiconify()
 
     # Load config for defaults
     config = load_config()
