@@ -209,7 +209,7 @@ def _run_gui(input_path: str | None = None) -> None:
                 run_pipeline(inp, out, cfg)
                 root.after(0, lambda: _on_done(None))
             except Exception as e:
-                root.after(0, lambda: _on_done(e))
+                root.after(0, lambda err=e: _on_done(err))
 
         def _on_done(error):
             run_btn.config(state="normal")
@@ -250,6 +250,23 @@ def _show_key_dialog(root: "tk.Tk") -> None:
     tk.Label(frame, text="Replicate Token:").grid(row=1, column=0, sticky="w")
     replicate_entry = tk.Entry(frame, width=50)
     replicate_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    def _paste(event):
+        try:
+            event.widget.event_generate("<<Clear>>")
+            event.widget.insert("insert", event.widget.clipboard_get())
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _select_all(event):
+        event.widget.select_range(0, "end")
+        event.widget.icursor("end")
+        return "break"
+
+    for entry in (gemini_entry, replicate_entry):
+        entry.bind("<Control-v>", _paste)
+        entry.bind("<Control-a>", _select_all)
 
     tk.Label(
         frame,
