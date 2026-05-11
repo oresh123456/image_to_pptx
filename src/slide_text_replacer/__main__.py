@@ -252,11 +252,17 @@ def _show_key_dialog(root: "tk.Tk") -> None:
     replicate_entry.grid(row=1, column=1, padx=5, pady=5)
 
     def _paste(event):
+        w = event.widget
         try:
-            event.widget.event_generate("<<Clear>>")
-            event.widget.insert("insert", event.widget.clipboard_get())
+            text = w.clipboard_get()
+        except tk.TclError:
+            return "break"
+        try:
+            if w.selection_present():
+                w.delete("sel.first", "sel.last")
         except tk.TclError:
             pass
+        w.insert("insert", text)
         return "break"
 
     def _select_all(event):
