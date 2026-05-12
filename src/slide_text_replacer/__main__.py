@@ -247,6 +247,26 @@ def _show_key_dialog(root: "tk.Tk") -> None:
     replicate_entry = tk.Entry(frame, width=50)
     replicate_entry.grid(row=1, column=1, padx=5, pady=5)
 
+    # Explicit paste/select-all — <<Paste>> silently fails on some Win builds
+    def _paste(event):
+        try:
+            text = event.widget.clipboard_get()
+            if event.widget.selection_present():
+                event.widget.delete("sel.first", "sel.last")
+            event.widget.insert("insert", text)
+        except tk.TclError:
+            pass
+        return "break"
+
+    def _select_all(event):
+        event.widget.select_range(0, "end")
+        event.widget.icursor("end")
+        return "break"
+
+    for entry in (gemini_entry, replicate_entry):
+        entry.bind("<Control-v>", _paste)
+        entry.bind("<Control-a>", _select_all)
+
     tk.Label(
         frame,
         text="Get keys at: aistudio.google.com/apikey & replicate.com/account/api-tokens",
