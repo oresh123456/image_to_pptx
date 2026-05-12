@@ -265,7 +265,9 @@ def _show_key_dialog(root: "tk.Tk") -> None:
 
     for entry in (gemini_entry, replicate_entry):
         entry.bind("<Control-v>", _paste)
+        entry.bind("<Control-V>", _paste)
         entry.bind("<Control-a>", _select_all)
+        entry.bind("<Control-A>", _select_all)
 
     tk.Label(
         frame,
